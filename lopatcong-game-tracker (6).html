@@ -410,7 +410,7 @@
   .s-big { font-size: 28px; font-weight: 800; color: var(--blue); }
   .s-line { font-size: 12px; color: var(--navy); padding: 3px 0; }
   .s-row { display: grid; grid-template-columns: 1.8fr 0.6fr 0.9fr 0.5fr 0.5fr 0.9fr; gap: 2px; font-size: 12px; padding: 6px 2px; border-bottom: 1px solid #eef2f7; color: var(--navy); }
-  .s-row.pos { grid-template-columns: 1.8fr 0.7fr 0.7fr 0.7fr 0.7fr; }
+  .s-row.pos { grid-template-columns: 1.8fr repeat(5, 0.7fr); }
   .s-row span:not(:first-child) { text-align: center; }
   .s-row.head { font-weight: 800; font-size: 10px; color: #6b7c93; text-transform: uppercase; }
 
@@ -498,6 +498,7 @@
   <button id="tabSeasonBtn" onclick="switchTab('season')">Season</button>
 </div>
 
+<div id="saveNotice" role="status" style="padding:8px;text-align:center;color:#ffd58a;" hidden></div>
 <div id="liveView">
 
   <div class="team-row">
@@ -573,6 +574,7 @@
 
 <div id="gamesView" style="display:none;">
   <div id="syncStatus" style="text-align:center;color:#cfe0f5;font-size:11px;margin-bottom:8px;"></div>
+  <button class="opp-goal-btn" style="margin-bottom:10px;" onclick="syncPendingGames()">↻ Retry pending uploads</button>
   <button class="opp-goal-btn" style="margin-bottom:10px;" onclick="exportGamesCsv()">⬇️ Export All Games (CSV)</button>
   <div id="gamesList"></div>
 </div>
@@ -583,7 +585,7 @@
   // (Project settings > Your apps > web app > config snippet)
   // ============================================================
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getFirestore, collection, addDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { getFirestore, collection, doc, setDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyA0SMKcnlQZ8M8oEeGn2ILGbrv11_fca5k",
@@ -605,14 +607,19 @@
     firebaseReady = true;
 
     window.__firebaseSaveGame = async function (report) {
-      await addDoc(gamesCol, report);
+      await setDoc(doc(gamesCol, report.id), report);
     };
 
-    onSnapshot(query(gamesCol, orderBy('dateISO', 'desc')), (snapshot) => {
+    onSnapshot(query(gamesCol, orderBy('dateISO', 'desc')), { includeMetadataChanges: true }, (snapshot) => {
       const games = [];
-      snapshot.forEach(d => games.push({ id: d.id, ...d.data() }));
-      if (window.__onGamesUpdate) window.__onGamesUpdate(games);
-    });
+      const confirmedIds = [];
+      snapshot.forEach(d => {
+        const report = { id: d.id, ...d.data() };
+        games.push(report);
+        if (!snapshot.metadata.fromCache && !d.metadata.hasPendingWrites) confirmedIds.push(report.id);
+      });
+      if (window.__onGamesUpdate) window.__onGamesUpdate(games, { confirmed: !snapshot.metadata.fromCache, confirmedIds });
+    }, () => { if (window.__onGamesError) window.__onGamesError(); });
   } catch (e) {
     console.warn('Firebase not configured yet — using local storage only.', e);
   }
@@ -645,7 +652,7 @@ const POS_GROUPS = [
 ];
 
 function mkPlayer(name) {
-  return { id: Math.random().toString(36).slice(2), name, slotId: null, sessionStart: null, half1Sec: 0, half2Sec: 0, present: true, posSec: {} };
+  return { id: Math.random().toString(36).slice(2), name, slotId: null, sessionStart: null, half1Sec: 0, half2Sec: 0, present: true, posSec: {}, unallocatedSec: 0 };
 }
 
 let players = [
@@ -668,22 +675,110 @@ let goals = []; // { id, team:'us'|'opp', half, clockLabel, scorerName, assistNa
 let savedGames = [];
 let currentTab = 'live';
 let targetMinutes = 18; // minimum minutes every player should get (editable in Roster & settings)
+let currentGameId = newGameId();
+let halfLengthMin = 25;
+let halfStarted = false;
+let finalizing = false;
+let confirmedSnapshotReceived = false;
+let historyStorageBlocked = false;
+let liveStorageBlocked = false;
+let historyError = '';
+let liveError = '';
+let cloudError = '';
+let dataWarning = '';
+const uploadingGames = new Map();
+
+function newGameId() { return 'game-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + '-' + Math.random().toString(36).slice(2)); }
+function isRecord(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
+function nonnegative(value) { return typeof value === 'number' && Number.isFinite(value) && value >= 0; }
+function signedNumber(value) { return typeof value === 'number' && Number.isFinite(value); }
+function validId(value) { return typeof value === 'string' && /^[a-zA-Z0-9_-]+$/.test(value); }
+function roundMin(value) { return +value.toFixed(1); }
+
+function normalizeGoals(value) {
+  if (!Array.isArray(value)) return null;
+  const out = [];
+  for (const goal of value) {
+    if (!isRecord(goal) || !validId(goal.id) || !['us', 'opp'].includes(goal.team) || ![1, 2].includes(goal.half) || typeof goal.clockLabel !== 'string' || typeof goal.scorerName !== 'string' || (goal.assistName != null && typeof goal.assistName !== 'string')) return null;
+    out.push({ id: goal.id, team: goal.team, half: goal.half, clockLabel: goal.clockLabel, scorerName: goal.scorerName, assistName: goal.assistName || null });
+  }
+  return out;
+}
+
+// Accept legacy reports without position totals; never trust types from storage or the network.
+function normalizeReport(value) {
+  if (!isRecord(value) || !validId(value.id) || !Array.isArray(value.players) || !Array.isArray(value.absentPlayers) || !value.absentPlayers.every(n => typeof n === 'string')) return null;
+  if (!['date', 'dateISO', 'teamName', 'opponentName'].every(k => typeof value[k] === 'string') || !Number.isFinite(Date.parse(value.dateISO))) return null;
+  if (!['ourGoals', 'oppGoals', 'halfLengthMin', 'minMin', 'maxMin', 'spreadMin'].every(k => nonnegative(value[k]))) return null;
+  if (value.targetMin != null && !nonnegative(value.targetMin)) return null;
+  const reportGoals = normalizeGoals(value.goals);
+  if (!reportGoals) return null;
+  const rows = [];
+  for (const p of value.players) {
+    if (!isRecord(p) || typeof p.name !== 'string' || !['half1Min', 'half2Min', 'totalMin'].every(k => nonnegative(p[k]))) return null;
+    if (!['gkMin', 'defMin', 'midMin', 'stMin'].every(k => p[k] === undefined || nonnegative(p[k])) || (p.unallocatedMin !== undefined && !signedNumber(p.unallocatedMin))) return null;
+    const row = { name: p.name, half1Min: p.half1Min, half2Min: p.half2Min, totalMin: p.totalMin, gkMin: p.gkMin || 0, defMin: p.defMin || 0, midMin: p.midMin || 0, stMin: p.stMin || 0 };
+    row.unallocatedMin = p.unallocatedMin === undefined ? roundMin(row.totalMin - row.gkMin - row.defMin - row.midMin - row.stMin) : p.unallocatedMin;
+    rows.push(row);
+  }
+  return { id: value.id, date: value.date, dateISO: value.dateISO, teamName: value.teamName, opponentName: value.opponentName, ourGoals: value.ourGoals, oppGoals: value.oppGoals, halfLengthMin: value.halfLengthMin, targetMin: value.targetMin == null ? 18 : value.targetMin, goals: reportGoals, players: rows, absentPlayers: value.absentPlayers.slice(), minMin: value.minMin, maxMin: value.maxMin, spreadMin: value.spreadMin };
+}
+
+function updateSaveStatus() {
+  const pending = savedGames.filter(g => g._syncState === 'pending' || g._syncState === 'legacy').length;
+  const unconfirmed = savedGames.filter(g => g._syncState === 'unconfirmed').length;
+  const issues = [historyError, liveError, cloudError, dataWarning].filter(Boolean);
+  const notice = document.getElementById('saveNotice');
+  notice.textContent = issues.join(' ');
+  notice.hidden = !issues.length;
+  const summary = pending ? pending + ' report(s) saved locally; upload pending.' : unconfirmed ? unconfirmed + ' report(s) awaiting cloud confirmation.' : savedGames.length ? 'Reports confirmed in cloud.' : 'No saved reports yet.';
+  document.getElementById('syncStatus').textContent = summary + (uploadingGames.size ? ' Uploading…' : '') + (issues.length ? ' ' + issues.join(' ') : '');
+}
+
+function refreshHistory() {
+  updateSaveStatus();
+  if (currentTab === 'games') renderGamesList();
+  if (currentTab === 'season') renderSeason();
+}
 
 function loadSettings() {
   try {
     const s = JSON.parse(localStorage.getItem('lopatcong-settings') || '{}');
-    if (s.targetMinutes > 0) targetMinutes = s.targetMinutes;
+    if (nonnegative(s.targetMinutes) && s.targetMinutes > 0 && s.targetMinutes <= 90) targetMinutes = s.targetMinutes;
   } catch (e) { /* defaults */ }
 }
 function saveSettings() {
   try { localStorage.setItem('lopatcong-settings', JSON.stringify({ targetMinutes })); } catch (e) {}
 }
 
-window.__onGamesUpdate = function (games) {
-  savedGames = games;
-  if (currentTab === 'games') renderGamesList();
-  if (currentTab === 'season') renderSeason();
+window.__onGamesUpdate = function (games, metadata = {}) {
+  if (!Array.isArray(games)) { dataWarning = 'Malformed cloud history was ignored.'; refreshHistory(); return; }
+  const confirmed = metadata.confirmed === true;
+  const confirmedIds = new Set(confirmed ? (metadata.confirmedIds || games.map(g => g && g.id)) : []);
+  const merged = new Map(savedGames.map(g => [g.id, g]));
+  const seenIds = new Set();
+  let invalid = 0;
+  games.forEach(raw => {
+    const report = normalizeReport(raw);
+    if (!report) { invalid++; return; }
+    seenIds.add(report.id);
+    const local = merged.get(report.id);
+    if (confirmedIds.has(report.id)) merged.set(report.id, { ...report, _syncState: 'confirmed' });
+    else if (!local) merged.set(report.id, { ...report, _syncState: 'unconfirmed' });
+  });
+  if (invalid) dataWarning = invalid + ' malformed cloud report(s) ignored.';
+  savedGames = Array.from(merged.values()).sort((a, b) => b.dateISO.localeCompare(a.dateISO));
+  if (confirmed) {
+    confirmedSnapshotReceived = true;
+    cloudError = '';
+    savedGames.forEach(g => { if (g._syncState === 'legacy' && !seenIds.has(g.id)) g._syncState = 'pending'; });
+  }
+  try { saveGamesToStorage(); } catch (e) { /* Keep both local and remote reports visible, with the cache error. */ }
+  refreshHistory();
+  if (confirmed) syncPendingGames(false);
 };
+window.__onGamesError = function () { cloudError = 'Cloud history is unavailable; local reports are retained. Retry when connected.'; refreshHistory(); };
+window.addEventListener('online', () => syncPendingGames(false));
 
 async function requestWakeLock() {
   try {
@@ -702,14 +797,28 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-function getHalfLengthSec() { return (parseFloat(document.getElementById('minsInput').value) || 25) * 60; }
+function getHalfLengthSec() { return halfLengthMin * 60; }
+function setHalfLength() {
+  const input = document.getElementById('minsInput');
+  const value = Number(input.value);
+  if (!Number.isFinite(value) || value < 1 || value > 60) {
+    input.setCustomValidity('Choose a half length between 1 and 60 minutes.');
+    return false;
+  }
+  input.setCustomValidity('');
+  if (gameRunning || halfStarted) { input.value = halfLengthMin; return true; }
+  halfLengthMin = value;
+  gameRemainingSec = getHalfLengthSec();
+  render();
+  return true;
+}
 function bucketKey() { return half === 1 ? 'half1Sec' : 'half2Sec'; }
 
 /* ---------- Undo ---------- */
 let undoStack = [];
 function snapshot() {
   undoStack.push(JSON.stringify({
-    players: players.map(p => ({ id: p.id, slotId: p.slotId, sessionStart: p.sessionStart, half1Sec: p.half1Sec, half2Sec: p.half2Sec, present: p.present, posSec: p.posSec })),
+    players: players.map(p => ({ id: p.id, slotId: p.slotId, sessionStart: p.sessionStart, half1Sec: p.half1Sec, half2Sec: p.half2Sec, present: p.present, posSec: p.posSec, unallocatedSec: p.unallocatedSec || 0 })),
     goals
   }));
   if (undoStack.length > 30) undoStack.shift();
@@ -732,8 +841,10 @@ function isOpen(id) { return document.getElementById(id).classList.contains('ope
 function effNow() { return (gameRunning && halfEndAt) ? Math.min(Date.now(), halfEndAt) : Date.now(); }
 
 function startClock() {
-  if (gameRunning) return;
+  if (finalizing || gameRunning) return;
+  if (!setHalfLength()) { document.getElementById('minsInput').reportValidity(); return; }
   undoStack = [];
+  halfStarted = true;
   gameRunning = true;
   halfEndAt = Date.now() + gameRemainingSec * 1000;
   const now = Date.now();
@@ -761,6 +872,7 @@ function pauseClock() {
 }
 
 function resetClock() {
+  if (finalizing) return;
   undoStack = [];
   const endAt = effNow();
   gameRunning = false;
@@ -768,13 +880,14 @@ function resetClock() {
   halfEndAt = null;
   flushAllSessions(endAt);
   gameRemainingSec = getHalfLengthSec();
+  halfStarted = false;
   document.getElementById('minsInput').disabled = false;
   releaseWakeLock();
   render();
 }
 
 function switchToHalf2() {
-  if (half !== 1) return;
+  if (finalizing || half !== 1) return;
   undoStack = [];
   const endAt = effNow();
   gameRunning = false;
@@ -782,6 +895,7 @@ function switchToHalf2() {
   halfEndAt = null;
   flushAllSessions(endAt);
   half = 2;
+  halfStarted = false;
   gameRemainingSec = getHalfLengthSec();
   releaseWakeLock();
   render();
@@ -878,6 +992,7 @@ function playerInSlot(slotId) { return players.find(p => p.slotId === slotId); }
 
 // Moves a player to a slot (or null = bench), closing out their current shift and starting a new one
 function assignSlot(p, slotId) {
+  if (finalizing) return;
   flushSession(p);
   p.slotId = slotId;
   if (slotId && gameRunning) p.sessionStart = Date.now();
@@ -904,6 +1019,7 @@ function populateGoalSelects() {
 }
 
 function logOurGoal() {
+  if (finalizing) return;
   const scorer = players.find(p => p.id === document.getElementById('scorerSelect').value);
   const assist = players.find(p => p.id === document.getElementById('assistSelect').value);
   snapshot();
@@ -911,11 +1027,12 @@ function logOurGoal() {
   render();
 }
 function logOppGoal() {
+  if (finalizing) return;
   snapshot();
   goals.push({ id: Date.now().toString(36), team: 'opp', half, clockLabel: fmtClock(currentHalfRemaining()), scorerName: 'Opponent', assistName: null });
   render();
 }
-function removeGoal(id) { snapshot(); goals = goals.filter(g => g.id !== id); render(); }
+function removeGoal(id) { if (finalizing) return; snapshot(); goals = goals.filter(g => g.id !== id); render(); }
 
 /* ---------- Rendering (live view) ---------- */
 function render() {
@@ -1000,16 +1117,25 @@ function render() {
 }
 
 function saveLiveState() {
+  if (liveStorageBlocked) { updateSaveStatus(); return false; }
   try {
     const data = {
+      currentGameId, halfStarted,
       teamName: document.getElementById('teamNameInput').value,
       opponentName: document.getElementById('opponentInput').value,
-      halfLengthMin: parseFloat(document.getElementById('minsInput').value) || 25,
+      halfLengthMin,
       half, gameRunning, gameRemainingSec, halfEndAt, goals,
-      players: players.map(p => ({ id: p.id, name: p.name, slotId: p.slotId, sessionStart: p.sessionStart, half1Sec: p.half1Sec, half2Sec: p.half2Sec, present: p.present, posSec: p.posSec || {} }))
+      players: players.map(p => ({ id: p.id, name: p.name, slotId: p.slotId, sessionStart: p.sessionStart, half1Sec: p.half1Sec, half2Sec: p.half2Sec, present: p.present, posSec: p.posSec || {}, unallocatedSec: p.unallocatedSec || 0 }))
     };
     localStorage.setItem('lopatcong-live-game', JSON.stringify(data));
-  } catch (e) { /* storage unavailable — live state just won't survive a refresh */ }
+    liveError = '';
+    updateSaveStatus();
+    return true;
+  } catch (e) {
+    liveError = 'Current game could not be saved on this device. Keep this page open and free storage before retrying.';
+    updateSaveStatus();
+    return false;
+  }
 }
 
 function loadLiveState() {
@@ -1017,14 +1143,29 @@ function loadLiveState() {
     const raw = localStorage.getItem('lopatcong-live-game');
     if (!raw) return;
     const data = JSON.parse(raw);
-    if (!data.players || data.players.length === 0) return;
+    if (!isRecord(data) || !Array.isArray(data.players) || ![1, 2].includes(data.half) || !nonnegative(data.gameRemainingSec) || !nonnegative(data.halfLengthMin) || data.halfLengthMin < 1 || data.halfLengthMin > 60 || typeof data.gameRunning !== 'boolean' || typeof data.teamName !== 'string' || typeof data.opponentName !== 'string') throw new Error('Invalid live game');
+    if ((data.currentGameId !== undefined && !validId(data.currentGameId)) || (data.halfEndAt != null && !nonnegative(data.halfEndAt)) || (data.gameRunning && !data.halfEndAt)) throw new Error('Invalid live clock');
+    const loadedGoals = normalizeGoals(data.goals);
+    if (!loadedGoals) throw new Error('Invalid goals');
+    const loadedPlayers = data.players.map(p => {
+      if (!isRecord(p) || !validId(p.id) || typeof p.name !== 'string' || !nonnegative(p.half1Sec) || !nonnegative(p.half2Sec) || (p.sessionStart != null && !nonnegative(p.sessionStart)) || (p.slotId != null && !slots.some(s => s.id === p.slotId)) || (p.present !== undefined && typeof p.present !== 'boolean') || (p.unallocatedSec !== undefined && !signedNumber(p.unallocatedSec))) throw new Error('Invalid player');
+      const posSec = p.posSec === undefined ? {} : p.posSec;
+      if (!isRecord(posSec) || !Object.entries(posSec).every(([id, sec]) => slots.some(s => s.id === id) && nonnegative(sec))) throw new Error('Invalid positions');
+      return { id: p.id, name: p.name, slotId: p.slotId || null, sessionStart: p.sessionStart || null, half1Sec: p.half1Sec, half2Sec: p.half2Sec, present: p.present !== false, posSec: { ...posSec }, unallocatedSec: p.unallocatedSec === undefined ? p.half1Sec + p.half2Sec - Object.values(posSec).reduce((sum, sec) => sum + sec, 0) : p.unallocatedSec };
+    });
+    if (new Set(loadedPlayers.map(p => p.id)).size !== loadedPlayers.length) throw new Error('Duplicate players');
+    document.getElementById('teamNameInput').value = data.teamName;
+    document.getElementById('opponentInput').value = data.opponentName;
+    halfLengthMin = data.halfLengthMin;
+    document.getElementById('minsInput').value = halfLengthMin;
+    currentGameId = data.currentGameId || currentGameId;
+    half = data.half;
+    halfStarted = data.halfStarted === true || data.gameRunning || data.gameRemainingSec < getHalfLengthSec();
+    goals = loadedGoals;
+    players = loadedPlayers;
 
-    document.getElementById('teamNameInput').value = data.teamName || 'Lopatcong';
-    document.getElementById('opponentInput').value = data.opponentName || 'Opponent';
-    document.getElementById('minsInput').value = data.halfLengthMin || 25;
-    half = data.half || 1;
-    goals = data.goals || [];
-    players = data.players.map(p => ({ ...p, present: p.present !== false, posSec: p.posSec || {} }));
+    // A history commit may have succeeded just before the live reset write failed.
+    if (savedGames.some(g => g.id === currentGameId)) { resetForNewGame(); return; }
 
     if (data.gameRunning && data.halfEndAt) {
       halfEndAt = data.halfEndAt;
@@ -1037,8 +1178,13 @@ function loadLiveState() {
       gameRunning = false;
       halfEndAt = null;
       gameRemainingSec = data.gameRemainingSec != null ? data.gameRemainingSec : getHalfLengthSec();
+      document.getElementById('minsInput').disabled = halfStarted;
     }
-  } catch (e) { /* corrupted or missing saved state — start fresh */ }
+  } catch (e) {
+    liveStorageBlocked = true;
+    liveError = 'Saved live game is malformed or unreadable. Its stored data has been preserved; recover it before saving a new game.';
+    updateSaveStatus();
+  }
 }
 
 function buildChip(player, onField) {
@@ -1160,9 +1306,7 @@ function switchTab(tab) {
     document.getElementById('tab' + cap + 'Btn').classList.toggle('active', tab === t);
   });
   if (tab === 'games') {
-    document.getElementById('syncStatus').textContent = window.__firebaseReady
-      ? '🟢 Synced live across devices'
-      : '⚪ Saved on this device only (Firebase not configured yet)';
+    updateSaveStatus();
     renderGamesList();
   }
   if (tab === 'season') renderSeason();
@@ -1172,27 +1316,31 @@ function switchTab(tab) {
 function buildReport() {
   const ourGoals = goals.filter(g => g.team === 'us').length;
   const oppGoals = goals.filter(g => g.team === 'opp').length;
-  const playerRows = players.filter(p => p.present).map(p => {
+  const participated = p => liveTotal(p) > 0 || Object.values(p.posSec || {}).some(sec => sec > 0);
+  const playerRows = players.filter(p => p.present || participated(p)).map(p => {
     const g = groupSecs(p.posSec || {});
     const m = s => +(s / 60).toFixed(1);
-    return {
+    const row = {
       name: p.name,
       half1Min: m(p.half1Sec),
       half2Min: m(p.half2Sec),
       totalMin: m(p.half1Sec + p.half2Sec),
       gkMin: m(g.gk), defMin: m(g.def), midMin: m(g.mid), stMin: m(g.st)
     };
+    // Include both manual corrections and rounding in the explicit remainder.
+    row.unallocatedMin = roundMin(row.totalMin - row.gkMin - row.defMin - row.midMin - row.stMin);
+    return row;
   }).sort((a, b) => b.totalMin - a.totalMin);
-  const absentPlayers = players.filter(p => !p.present).map(p => p.name);
+  const absentPlayers = players.filter(p => !p.present && !participated(p)).map(p => p.name);
   const totals = playerRows.map(r => r.totalMin);
   return {
-    id: Date.now().toString(36),
+    id: currentGameId,
     date: new Date().toLocaleString(),
     dateISO: new Date().toISOString(),
     teamName: document.getElementById('teamNameInput').value || 'Lopatcong',
     opponentName: document.getElementById('opponentInput').value || 'Opponent',
     ourGoals, oppGoals,
-    halfLengthMin: parseFloat(document.getElementById('minsInput').value) || 25,
+    halfLengthMin,
     targetMin: targetMinutes,
     goals: goals.map(g => ({ ...g })),
     players: playerRows,
@@ -1203,34 +1351,93 @@ function buildReport() {
   };
 }
 
-function saveGamesToStorage() {
+function saveGamesToStorage(games = savedGames) {
   try {
-    localStorage.setItem('lopatcong-games', JSON.stringify(savedGames));
-  } catch (e) { console.error('Could not save game history', e); }
+    if (historyStorageBlocked) throw new Error('Existing history must be recovered first');
+    localStorage.setItem('lopatcong-games', JSON.stringify(games));
+    historyError = '';
+  } catch (e) {
+    if (!historyStorageBlocked) historyError = 'Game history could not be saved on this device. Free storage and retry; keep this page open.';
+    updateSaveStatus();
+    throw e;
+  }
 }
 function loadGamesFromStorage() {
   try {
     const raw = localStorage.getItem('lopatcong-games');
-    if (raw) savedGames = JSON.parse(raw);
-  } catch (e) { savedGames = []; }
+    if (!raw) return;
+    const values = JSON.parse(raw);
+    if (!Array.isArray(values)) throw new Error('Invalid history');
+    const reports = new Map();
+    let invalid = false;
+    values.forEach(value => {
+      const report = normalizeReport(value);
+      if (!report) { invalid = true; return; }
+      reports.set(report.id, { ...report, _syncState: ['pending', 'confirmed', 'unconfirmed'].includes(value._syncState) ? value._syncState : 'legacy' });
+    });
+    savedGames = Array.from(reports.values());
+    if (invalid) throw new Error('Malformed report');
+  } catch (e) {
+    historyStorageBlocked = true;
+    historyError = 'Saved history contains malformed or unreadable data. Valid reports are shown; original storage is preserved. Recover it before saving more games.';
+    updateSaveStatus();
+  }
+}
+
+function confirmUploadedGame(id) {
+  const game = savedGames.find(g => g.id === id);
+  if (!game) return;
+  game._syncState = 'confirmed';
+  if (!savedGames.some(g => g._syncState === 'pending' || g._syncState === 'legacy')) cloudError = '';
+  try { saveGamesToStorage(); } catch (e) { /* A cloud acknowledgment does not guarantee local storage succeeded. */ }
+  refreshHistory();
+}
+
+async function syncPendingGames(explicit = true) {
+  if (!window.__firebaseSaveGame) { cloudError = 'Cloud connection unavailable; reports remain saved locally with upload pending.'; refreshHistory(); return; }
+  if (!explicit && !confirmedSnapshotReceived) return;
+  const pending = savedGames.filter(g => g._syncState === 'pending' && !uploadingGames.has(g.id));
+  await Promise.all(pending.map(async game => {
+    const report = normalizeReport(game); // Never send local sync metadata to Firestore.
+    if (!report) return;
+    let timer;
+    const attempt = Promise.resolve().then(() => window.__firebaseSaveGame(report)).then(() => confirmUploadedGame(report.id));
+    uploadingGames.set(game.id, attempt);
+    refreshHistory();
+    try {
+      await Promise.race([attempt, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Upload timed out')), 6000); })]);
+      cloudError = '';
+    } catch (e) {
+      cloudError = 'Cloud upload failed or timed out; reports remain saved locally with upload pending. Retry when connected.';
+    } finally {
+      clearTimeout(timer);
+      if (uploadingGames.get(game.id) === attempt) uploadingGames.delete(game.id);
+      refreshHistory();
+    }
+  }));
 }
 
 function resetForNewGame() {
+  currentGameId = newGameId();
   half = 1;
+  halfStarted = false;
   gameRunning = false;
+  halfEndAt = null;
   clearInterval(gameIntervalId);
   gameRemainingSec = getHalfLengthSec();
   goals = [];
   undoStack = [];
-  players.forEach(p => { p.slotId = null; p.sessionStart = null; p.half1Sec = 0; p.half2Sec = 0; p.posSec = {}; p.present = true; });
+  players.forEach(p => { p.slotId = null; p.sessionStart = null; p.half1Sec = 0; p.half2Sec = 0; p.posSec = {}; p.unallocatedSec = 0; p.present = true; });
   document.getElementById('minsInput').disabled = false;
 }
 
 function restartGame() {
+  if (finalizing) return;
   showModal('Restart this game from zero? Clock, field, playing time and goals will be cleared. Nothing is saved to Game History.', { confirmText: 'Restart', showCancel: true, onConfirm: doRestartGame });
 }
 
 function doRestartGame() {
+  if (finalizing) return;
   const attendance = new Map(players.map(p => [p.id, p.present]));
   clearInterval(gameIntervalId);
   halfEndAt = null;
@@ -1269,6 +1476,7 @@ function closeAttendanceModal() {
   document.getElementById('attendanceModal').classList.remove('open');
 }
 function togglePresent(id) {
+  if (finalizing) return;
   const p = players.find(pl => pl.id === id);
   if (!p) return;
   snapshot();
@@ -1321,11 +1529,18 @@ function renderPlanner() {
 
 // Manual fix: add/remove whole minutes to a player's time in the current half
 function adjustMinutes(id, delta) {
+  if (finalizing || !signedNumber(delta)) return;
   const p = players.find(x => x.id === id);
   if (!p) return;
   snapshot();
+  const now = effNow();
+  const resume = gameRunning && !!p.slotId;
+  flushSession(p, now);
   const k = bucketKey();
+  const previous = p[k];
   p[k] = Math.max(0, p[k] + delta * 60);
+  p.unallocatedSec = (p.unallocatedSec || 0) + p[k] - previous;
+  if (resume) p.sessionStart = now;
   renderPlanner();
   render();
 }
@@ -1389,42 +1604,43 @@ function removePlayer(id) {
 
 /* ---------- Finalize ---------- */
 function finalizeGame() {
+  if (finalizing || !hasGameActivity()) return;
   showModal('Finalize this game? This saves the report to Game History and clears the board for a new game.', { confirmText: 'Finalize', showCancel: true, onConfirm: doFinalizeGame });
 }
 
-async function doFinalizeGame() {
+function hasGameActivity() {
+  return halfStarted || half === 2 || goals.length > 0 || players.some(p => liveTotal(p) > 0 || Object.values(p.posSec || {}).some(sec => sec > 0));
+}
+
+function doFinalizeGame() {
+  if (finalizing || !hasGameActivity()) return;
+  finalizing = true;
   try {
     const endAt = effNow();
+    if (gameRunning && halfEndAt) gameRemainingSec = Math.max(0, Math.round((halfEndAt - Date.now()) / 1000));
     gameRunning = false;
     clearInterval(gameIntervalId);
     halfEndAt = null;
     flushAllSessions(endAt);
     releaseWakeLock();
-    const report = buildReport();
-
-    let savedToCloud = false;
-    if (window.__firebaseSaveGame) {
-      try {
-        const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Firebase save timed out')), 6000));
-        await Promise.race([window.__firebaseSaveGame(report), timeout]);
-        savedToCloud = true;
-      } catch (e) {
-        console.warn('Could not save to Firebase (or it timed out), saving locally instead.', e);
-      }
-    }
-    if (!savedToCloud) {
-      savedGames.unshift(report);
-      saveGamesToStorage();
-    }
+    // Persist this ID before the history commit, so a failed reset cannot duplicate it on reload.
+    if (!saveLiveState()) throw new Error('The current match could not be saved locally.');
+    const report = normalizeReport(buildReport());
+    if (!report) throw new Error('The report contains invalid data.');
+    const next = [{ ...report, _syncState: 'pending' }, ...savedGames.filter(g => g.id !== report.id)];
+    saveGamesToStorage(next);
+    savedGames = next;
 
     resetForNewGame();
     populateGoalSelects();
     render();
     switchTab('games');
+    syncPendingGames(false);
   } catch (e) {
     console.error('Finalize game failed:', e);
-    showModal('Something went wrong finalizing the game: ' + e.message + ' Your current game data is still intact — nothing was lost. Please try again or screenshot this message.', { showCancel: false });
-  }
+    render();
+    showModal('This game has not been cleared. Could not save locally: ' + e.message + ' Keep this page open, resolve the storage error, and retry Finalize.', { showCancel: false });
+  } finally { finalizing = false; }
 }
 
 /* ---------- Game history cards, share, CSV ---------- */
@@ -1438,6 +1654,7 @@ function posLineForRow(p) {
   if (p.defMin) parts.push('DEF ' + p.defMin);
   if (p.midMin) parts.push('MID ' + p.midMin);
   if (p.stMin) parts.push('ST ' + p.stMin);
+  if (p.unallocatedMin) parts.push('Unallocated ' + (p.unallocatedMin > 0 ? '+' : '') + p.unallocatedMin);
   return parts.join(' · ');
 }
 
@@ -1461,6 +1678,7 @@ function gameCardHtml(g) {
   <details class="game-card">
     <summary>${esc(g.date)} — ${esc(g.teamName)} ${g.ourGoals}-${g.oppGoals} ${esc(g.opponentName)} <span class="spread-badge">spread ${g.spreadMin}m</span></summary>
     <div class="game-detail">
+      <p>${g._syncState === 'confirmed' ? 'Confirmed in cloud' : g._syncState === 'unconfirmed' ? (historyError ? 'Available in this page · awaiting cloud confirmation' : 'Cached locally · awaiting cloud confirmation') : 'Saved locally · upload pending'}</p>
       <h4>Goals</h4>
       ${goalsHtml}
       <h4>Playing Time (${g.halfLengthMin} min halves · goal ${tgt} min)</h4>
@@ -1519,10 +1737,10 @@ function copyShareText() {
 
 function exportGamesCsv() {
   if (savedGames.length === 0) { showModal('No finalized games to export yet.', { showCancel: false }); return; }
-  const rows = [['Date', 'Team', 'Opponent', 'Our Goals', 'Opp Goals', 'Half Length (min)', 'Target Min', 'Player', 'Half 1 Min', 'Half 2 Min', 'Total Min', 'GK Min', 'Def Min', 'Mid Min', 'Striker Min']];
+  const rows = [['Date', 'Team', 'Opponent', 'Our Goals', 'Opp Goals', 'Half Length (min)', 'Target Min', 'Player', 'Half 1 Min', 'Half 2 Min', 'Total Min', 'GK Min', 'Def Min', 'Mid Min', 'Striker Min', 'Unallocated Min']];
   savedGames.forEach(g => {
     g.players.forEach(p => {
-      rows.push([g.date, g.teamName, g.opponentName, g.ourGoals, g.oppGoals, g.halfLengthMin, g.targetMin || 18, p.name, p.half1Min, p.half2Min, p.totalMin, p.gkMin || 0, p.defMin || 0, p.midMin || 0, p.stMin || 0]);
+      rows.push([g.date, g.teamName, g.opponentName, g.ourGoals, g.oppGoals, g.halfLengthMin, g.targetMin || 18, p.name, p.half1Min, p.half2Min, p.totalMin, p.gkMin || 0, p.defMin || 0, p.midMin || 0, p.stMin || 0, p.unallocatedMin || 0]);
     });
   });
   const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -1548,9 +1766,9 @@ function renderGamesList() {
 
 /* ---------- Season totals & goalie history ---------- */
 function seasonStats() {
-  const map = {};
+  const map = Object.create(null);
   const rec = { w: 0, l: 0, t: 0, gf: 0, ga: 0, games: savedGames.length };
-  const ensure = n => (map[n] = map[n] || { gp: 0, min: 0, goals: 0, assists: 0, gk: 0, gkGames: 0, def: 0, mid: 0, st: 0, hit: 0 });
+  const ensure = n => (map[n] = map[n] || { gp: 0, min: 0, goals: 0, assists: 0, gk: 0, gkGames: 0, def: 0, mid: 0, st: 0, unallocated: 0, hit: 0 });
   savedGames.forEach(g => {
     rec.gf += g.ourGoals; rec.ga += g.oppGoals;
     if (g.ourGoals > g.oppGoals) rec.w++; else if (g.ourGoals < g.oppGoals) rec.l++; else rec.t++;
@@ -1559,6 +1777,7 @@ function seasonStats() {
       const s = ensure(p.name);
       s.gp++; s.min += p.totalMin;
       s.gk += p.gkMin || 0; s.def += p.defMin || 0; s.mid += p.midMin || 0; s.st += p.stMin || 0;
+      s.unallocated += p.unallocatedMin || 0;
       if (p.gkMin > 0) s.gkGames++;
       if (p.totalMin >= tgt) s.hit++;
     });
@@ -1579,7 +1798,7 @@ function renderSeason() {
     return;
   }
   const names = Array.from(new Set([...Object.keys(map), ...players.map(p => p.name)])).sort((a, b) => a.localeCompare(b));
-  const zero = { gp: 0, min: 0, goals: 0, assists: 0, gk: 0, gkGames: 0, def: 0, mid: 0, st: 0, hit: 0 };
+  const zero = { gp: 0, min: 0, goals: 0, assists: 0, gk: 0, gkGames: 0, def: 0, mid: 0, st: 0, unallocated: 0, hit: 0 };
   const rows = names.map(n => ({ n, s: map[n] || zero }));
   const r1 = x => Math.round(x * 10) / 10;
 
@@ -1587,7 +1806,7 @@ function renderSeason() {
     <div class="s-row"><span>${esc(n)}</span><span>${s.gp}</span><span>${s.gp ? r1(s.min / s.gp) : '–'}</span><span>${s.goals}</span><span>${s.assists}</span><span>${s.hit}/${s.gp}</span></div>`).join('');
 
   const posTable = rows.filter(r => r.s.gp).map(({ n, s }) => `
-    <div class="s-row pos"><span>${esc(n)}</span><span>${Math.round(s.gk)}</span><span>${Math.round(s.def)}</span><span>${Math.round(s.mid)}</span><span>${Math.round(s.st)}</span></div>`).join('');
+    <div class="s-row pos"><span>${esc(n)}</span><span>${r1(s.gk)}</span><span>${r1(s.def)}</span><span>${r1(s.mid)}</span><span>${r1(s.st)}</span><span>${r1(s.unallocated)}</span></div>`).join('');
 
   const goalieGames = savedGames.map(g => {
     const gks = (g.players || []).filter(p => p.gkMin > 0).sort((a, b) => b.gkMin - a.gkMin);
@@ -1607,7 +1826,7 @@ function renderSeason() {
     </div>
     <div class="s-card">
       <h3>Season minutes by position</h3>
-      <div class="s-row pos head"><span>Player</span><span>GK</span><span>DEF</span><span>MID</span><span>ST</span></div>
+      <div class="s-row pos head"><span>Player</span><span>GK</span><span>DEF</span><span>MID</span><span>ST</span><span>Unalloc.</span></div>
       ${posTable}
     </div>
     <div class="s-card">
@@ -1619,7 +1838,7 @@ function renderSeason() {
 /* ---------- Init ---------- */
 document.getElementById('teamNameInput').addEventListener('input', saveLiveState);
 document.getElementById('opponentInput').addEventListener('input', saveLiveState);
-document.getElementById('minsInput').addEventListener('input', saveLiveState);
+document.getElementById('minsInput').addEventListener('input', setHalfLength);
 document.getElementById('newPlayerInput').addEventListener('keydown', e => { if (e.key === 'Enter') addPlayer(); });
 
 (async function init() {

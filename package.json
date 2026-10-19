@@ -1,0 +1,11 @@
+{
+  "name": "lopat-soccer-tracker",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/tracker.test.cjs",
+    "lint": "node tests/check-syntax.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}
