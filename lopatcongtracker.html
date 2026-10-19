@@ -1,0 +1,1637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Lopatcong Soccer Game Tracker</title>
+<style>
+  :root {
+    --navy: #002855;
+    --blue: #1f5fa8;
+    --yellow: #ffd400;
+    --yellow-dark: #e6bf00;
+    --grass: #2e8b3d;
+    --grass-dark: #287a35;
+    --text: #14283f;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { overscroll-behavior: none; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: linear-gradient(180deg, var(--navy), var(--blue));
+    min-height: 100vh;
+    padding: 10px;
+    color: var(--text);
+    touch-action: pan-y;
+  }
+  .header { text-align: center; color: var(--yellow); margin-bottom: 6px; }
+  .header h1 { margin: 0; font-size: 18px; }
+  .header p { margin: 2px 0 0; color: #cfe0f5; font-size: 11px; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+  .tabs button {
+    flex: 1;
+    padding: 9px 4px;
+    border: none;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 13px;
+    background: rgba(255,255,255,0.15);
+    color: #cfe0f5;
+  }
+  .tabs button.active { background: var(--yellow); color: var(--navy); }
+
+  /* Team name row */
+  .team-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .team-row input {
+    flex: 1;
+    min-width: 0;
+    padding: 8px;
+    border-radius: 8px;
+    border: none;
+    font-size: 13px;
+    text-align: center;
+    font-weight: 700;
+  }
+  .score-vs { color: var(--yellow); font-weight: 800; font-size: 16px; }
+
+  /* Scoreboard */
+  .scoreboard {
+    text-align: center;
+    color: white;
+    font-size: 26px;
+    font-weight: 800;
+    margin-bottom: 8px;
+  }
+  .scoreboard .half-tag {
+    display: block;
+    font-size: 11px;
+    color: var(--yellow);
+    font-weight: 700;
+    margin-top: 2px;
+  }
+
+  /* Clock bar */
+  .clock-bar {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 12px;
+    padding: 8px 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .clock-time {
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--yellow);
+    font-variant-numeric: tabular-nums;
+    min-width: 72px;
+    text-align: center;
+  }
+  .clock-btns { display: flex; gap: 5px; flex: 1; flex-wrap: wrap; }
+  .clock-btns button {
+    flex: 1;
+    min-width: 56px;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 3px;
+    font-weight: 700;
+    font-size: 11px;
+  }
+  .btn-start { background: #2ecc71; color: white; }
+  .btn-pause { background: var(--yellow); color: var(--navy); }
+  .btn-reset { background: rgba(255,255,255,0.25); color: white; }
+  .btn-half2 { background: var(--blue); color: white; }
+  .mins-input {
+    width: 42px;
+    padding: 6px 2px;
+    border-radius: 6px;
+    border: none;
+    text-align: center;
+    font-size: 13px;
+  }
+
+  /* Goals panel */
+  .panel {
+    background: rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 10px;
+    margin-bottom: 8px;
+  }
+  .panel h3 { margin: 0 0 8px; font-size: 13px; color: var(--yellow); }
+  .goal-form {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .goal-form select {
+    flex: 1;
+    min-width: 110px;
+    padding: 8px 4px;
+    border-radius: 8px;
+    border: none;
+    font-size: 13px;
+  }
+  .goal-form button {
+    background: var(--yellow);
+    color: var(--navy);
+    border: none;
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-weight: 700;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .opp-goal-btn {
+    width: 100%;
+    background: rgba(255,255,255,0.2);
+    color: white;
+    border: 1px dashed rgba(255,255,255,0.5);
+    border-radius: 8px;
+    padding: 8px;
+    font-weight: 700;
+    font-size: 12px;
+  }
+  .goal-list { margin-top: 8px; max-height: 130px; overflow-y: auto; }
+  .goal-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(255,255,255,0.08);
+    border-radius: 8px;
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    font-size: 12px;
+    color: white;
+  }
+  .goal-row .del { background: none; border: none; color: #ff9b9b; font-size: 14px; padding: 0 4px; }
+
+  /* Field */
+  .field {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 0.9; /* half a pitch is much shorter than a full one */
+    background: repeating-linear-gradient(
+      to bottom, var(--grass) 0, var(--grass) 10%, var(--grass-dark) 10%, var(--grass-dark) 20%
+    );
+    border-radius: 10px;
+    border: 3px solid white;
+    margin-bottom: 10px;
+    overflow: hidden;
+    touch-action: pan-y; /* empty field scrolls the page; only the player chips (touch-action: none) drag */
+  }
+  .field .line { position: absolute; background: rgba(255,255,255,0.85); }
+  /* Half-field view: the halfway line is the top edge, only our half is drawn */
+  .halfway { left: 0; right: 0; top: 0; height: 2px; }
+  .field .line.center-circle {
+    left: 50%; top: 0; width: 42%; padding-bottom: 42%;
+    border: 2px solid rgba(255,255,255,0.85); border-radius: 50%;
+    background: none; transform: translate(-50%, -50%); /* centered on the top edge, so only the lower half shows */
+  }
+  .field .line.box-top { display: none; }
+  .field .line.box-bottom { left: 20%; bottom: 0; width: 60%; height: 26%; border: 2px solid rgba(255,255,255,0.85); border-bottom: none; background: none; }
+
+  .slot {
+    position: absolute; width: 62px; height: 62px; transform: translate(-50%, -50%);
+    border: 2px dashed rgba(255,255,255,0.6); border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; color: rgba(255,255,255,0.75); font-weight: 700;
+    text-align: center; line-height: 1.1; padding: 4px;
+  }
+  .slot[data-slot-id="gk"] { background: rgba(46, 204, 113, 0.45); border-color: rgba(255,255,255,0.9); }
+  .slot.filled { border-style: solid; border-color: var(--yellow); }
+  .slot[data-slot-id="gk"].filled { border-color: var(--yellow); }
+  .slot.drop-hover { background: rgba(255,212,0,0.35); }
+
+  .chip {
+    position: relative; width: 60px; height: 60px; border-radius: 50%;
+    background: white; border: 3px solid var(--blue);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    touch-action: none; cursor: grab; user-select: none;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  }
+  .chip.on-field { border-color: var(--yellow-dark); }
+  .chip .initials {
+    font-weight: 800; font-size: 9px; color: var(--navy); line-height: 1.1;
+    max-width: 50px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    text-align: center;
+  }
+  .chip .shift-clock { font-size: 8px; font-weight: 700; color: var(--blue); margin-top: 1px; }
+  .field-name-label {
+    position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+    font-size: 9px; color: white; background: rgba(0,0,0,0.55);
+    padding: 1px 5px; border-radius: 6px; margin-bottom: 2px;
+    font-weight: 700; white-space: nowrap; z-index: 1;
+  }
+  /* The Striker sits right under the top edge, so its name tag goes below the circle instead of above */
+  .slot[data-slot-id="st"] .field-name-label {
+    bottom: auto; top: 100%; margin-bottom: 0; margin-top: 2px;
+  }
+  .drag-ghost { position: fixed; z-index: 999; pointer-events: none; opacity: 0.9; transform: translate(-50%, -50%) scale(1.08); }
+
+  /* Bench */
+  .bench-header { display: flex; align-items: center; justify-content: space-between; color: var(--yellow); font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+  .bench-header span.sub { color: #cfe0f5; font-weight: 400; font-size: 10px; }
+  .bench { background: rgba(255,255,255,0.08); border-radius: 12px; padding: 10px 8px; display: flex; flex-wrap: wrap; gap: 10px; min-height: 90px; justify-content: center; }
+  .bench.drop-hover { background: rgba(255,212,0,0.15); }
+  .bench-chip-wrap { display: flex; flex-direction: column; align-items: center; width: 62px; }
+  .bench-total { font-size: 9px; color: white; margin-top: 3px; font-weight: 700; text-align: center; }
+  .bench-name { font-size: 9px; color: #dbe9fb; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+  .needs-time .bench-total { color: #ffb3b3; }
+
+  .summary-toggle { text-align: center; margin: 10px 0 6px; }
+  .summary-toggle button { background: transparent; border: 1px solid rgba(255,255,255,0.4); color: #cfe0f5; padding: 7px 14px; border-radius: 20px; font-size: 12px; }
+  .summary { display: none; background: white; border-radius: 12px; padding: 10px; margin-top: 4px; }
+  .summary.open { display: block; }
+  .summary h3 { margin: 0 0 6px; font-size: 13px; color: var(--navy); }
+  .summary-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 4px; border-bottom: 1px solid #eef2f7; font-size: 13px; }
+  .summary-row .sname { font-weight: 600; color: var(--navy); }
+  .summary-row .stotal { font-weight: 800; color: var(--blue); font-size: 12px; }
+  .summary-row.low .stotal { color: #c0392b; }
+  .summary-row.high .stotal { color: #1e7a1e; }
+
+  /* Finalize */
+  .finalize-row { margin: 14px 0 6px; }
+  .restart-btn {
+    width: 100%;
+    margin-top: 10px;
+    background: transparent;
+    color: #cfe0f5;
+    border: 1px solid rgba(255,255,255,0.4);
+    border-radius: 12px;
+    padding: 11px;
+    font-weight: 700;
+    font-size: 13px;
+  }
+  .finalize-btn {
+    width: 100%;
+    background: #c0392b;
+    color: white;
+    border: none;
+    border-radius: 12px;
+    padding: 14px;
+    font-weight: 800;
+    font-size: 15px;
+    letter-spacing: 0.5px;
+  }
+
+  /* Games tab */
+  .no-results { text-align: center; padding: 24px; color: #cfe0f5; font-size: 13px; }
+  .game-card {
+    background: white;
+    border-radius: 12px;
+    margin-bottom: 10px;
+    overflow: hidden;
+  }
+  .game-card summary {
+    padding: 12px;
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--navy);
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .game-card summary::-webkit-details-marker { display: none; }
+  .spread-badge {
+    background: var(--blue);
+    color: white;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 700;
+  }
+  .game-detail { padding: 0 12px 12px; }
+  .game-detail h4 { margin: 8px 0 4px; font-size: 12px; color: var(--navy); }
+  .game-detail .goal-row { background: #f3f6fa; color: var(--navy); }
+
+  /* Custom confirm modal (native confirm() is blocked in iOS home-screen apps) */
+  .modal-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 2000;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal-box {
+    background: white;
+    border-radius: 14px;
+    padding: 20px;
+    max-width: 320px;
+    width: 100%;
+    text-align: center;
+  }
+  .modal-box p { color: var(--navy); font-size: 14px; margin: 0 0 16px; line-height: 1.4; }
+  .modal-btns { display: flex; gap: 8px; }
+  .modal-btns button { flex: 1; border: none; border-radius: 8px; padding: 11px; font-weight: 700; font-size: 14px; }
+  .modal-cancel { background: #eee; color: var(--navy); }
+  .modal-confirm { background: #c0392b; color: white; }
+
+  .attendance-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 4px;
+    border-bottom: 1px solid #eef2f7;
+  }
+  .attendance-row .pname { font-size: 14px; color: var(--navy); font-weight: 600; }
+  .attendance-row.absent .pname { color: #999; text-decoration: line-through; }
+  .toggle-switch {
+    width: 46px; height: 26px; border-radius: 20px;
+    background: #ccc; position: relative; border: none; flex-shrink: 0;
+  }
+  .toggle-switch.on { background: #2ecc71; }
+  .toggle-switch .knob {
+    position: absolute; top: 2px; left: 2px;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: white; transition: left 0.15s;
+  }
+  .toggle-switch.on .knob { left: 22px; }
+
+
+  /* Toolbar, banner, planner, roster, season */
+  #confirmModal { z-index: 3000; }
+  .toolbar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 8px; }
+  .tool-btn { background: rgba(255,255,255,0.18); color: #fff; border: 1px solid rgba(255,255,255,0.35); border-radius: 8px; padding: 9px 2px; font-weight: 700; font-size: 11px; }
+  .tool-btn:disabled { opacity: 0.4; }
+  .banner { border-radius: 10px; padding: 8px 10px; font-size: 12px; font-weight: 700; margin-bottom: 8px; line-height: 1.35; }
+  .banner:empty { display: none; }
+  .banner.ok { background: #d6f5d6; color: #1e5e1e; }
+  .banner.warn { background: #fff1c2; color: #7a5a00; }
+  .banner.bad { background: #ffd6d6; color: #8a1c1c; }
+  .bench-need { font-size: 8.5px; color: #cfe0f5; text-align: center; white-space: nowrap; }
+  .bench-chip-wrap.flag-warn .chip { border-color: #ffb300; box-shadow: 0 0 0 3px rgba(255,179,0,0.5); }
+  .bench-chip-wrap.flag-bad .chip { border-color: #e53935; box-shadow: 0 0 0 3px rgba(229,57,53,0.55); }
+  .bench-chip-wrap.flag-warn .bench-need { color: #ffd54f; }
+  .bench-chip-wrap.flag-bad .bench-need { color: #ff8a80; }
+  .pos-line { font-size: 10px; font-weight: 400; color: #6b7c93; margin-top: 1px; }
+  .modal-box.wide { max-width: 400px; }
+  .modal-list { text-align: left; max-height: 55vh; overflow-y: auto; margin-bottom: 12px; }
+  .modal-title { font-size: 12px; color: #5b6b80; margin: 0 0 8px; text-align: left; }
+  .pl-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 7px 4px; border-bottom: 1px solid #eef2f7; text-align: left; }
+  .pl-row.top { border-left: 4px solid var(--yellow); padding-left: 6px; }
+  .pl-main { min-width: 0; flex: 1; }
+  .pl-name { font-weight: 700; font-size: 14px; color: var(--navy); }
+  .pl-sub { font-size: 11px; color: #5b6b80; margin-top: 1px; }
+  .pl-sub b.bad { color: #c0392b; }
+  .pl-sub b.warn { color: #b27c00; }
+  .adj { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  .adj button { width: 34px; height: 34px; border-radius: 8px; border: none; background: var(--blue); color: #fff; font-weight: 800; font-size: 16px; }
+  .adj span { font-size: 10px; color: #5b6b80; }
+  .hint-text { font-size: 11px; color: #6b7c93; margin: 0 0 10px; text-align: left; }
+  .rost-row, .add-row { display: flex; gap: 6px; align-items: center; padding: 4px 0; }
+  .rost-row input, .add-row input, .set-row input { flex: 1; min-width: 0; font-size: 16px; padding: 8px; border: 1px solid #ccd6e3; border-radius: 8px; color: var(--navy); }
+  .rost-del { background: none; border: none; color: #c0392b; font-size: 22px; padding: 0 8px; }
+  .add-row button { background: var(--yellow); color: var(--navy); border: none; border-radius: 8px; padding: 10px 14px; font-weight: 800; }
+  .set-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0 10px; font-size: 14px; font-weight: 700; color: var(--navy); border-bottom: 1px solid #eef2f7; margin-bottom: 6px; }
+  .set-row input { flex: 0 0 70px; text-align: center; }
+  .share-btn { margin-top: 10px; width: 100%; background: var(--blue); color: #fff; border: none; border-radius: 8px; padding: 10px; font-weight: 700; font-size: 13px; }
+  .copy-ta { width: 100%; height: 220px; font-size: 12px; border: 1px solid #ccd6e3; border-radius: 8px; padding: 8px; margin-bottom: 8px; color: var(--navy); }
+  #shareCopied { font-size: 12px; color: #1e7a1e; min-height: 16px; margin: 0 0 8px; }
+  .s-card { background: #fff; border-radius: 12px; padding: 10px; margin-bottom: 10px; }
+  .s-card h3 { margin: 0 0 6px; font-size: 13px; color: var(--navy); }
+  .s-big { font-size: 28px; font-weight: 800; color: var(--blue); }
+  .s-line { font-size: 12px; color: var(--navy); padding: 3px 0; }
+  .s-row { display: grid; grid-template-columns: 1.8fr 0.6fr 0.9fr 0.5fr 0.5fr 0.9fr; gap: 2px; font-size: 12px; padding: 6px 2px; border-bottom: 1px solid #eef2f7; color: var(--navy); }
+  .s-row.pos { grid-template-columns: 1.8fr 0.7fr 0.7fr 0.7fr 0.7fr; }
+  .s-row span:not(:first-child) { text-align: center; }
+  .s-row.head { font-weight: 800; font-size: 10px; color: #6b7c93; text-transform: uppercase; }
+
+  /* Tablet / large screens: keep the layout phone-sized and the field from towering over the screen */
+  @media (min-width: 700px) {
+    body > .header,
+    body > .tabs,
+    body > #liveView,
+    body > #gamesView,
+    body > #seasonView {
+      max-width: 640px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .field {
+      aspect-ratio: auto;
+      height: clamp(400px, 55vh, 540px); /* half a pitch: about half a screen tall, never too squashed for the player circles */
+    }
+  }
+</style>
+</head>
+<body>
+
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal-box">
+    <p id="confirmModalText"></p>
+    <div class="modal-btns">
+      <button class="modal-cancel" id="confirmModalCancelBtn" onclick="hideConfirmModal()">Cancel</button>
+      <button class="modal-confirm" id="confirmModalYes">Finalize</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="plannerModal">
+  <div class="modal-box wide">
+    <p style="margin-bottom:4px;font-weight:800;">Playtime planner</p>
+    <p class="modal-title" id="plannerHead"></p>
+    <p class="hint-text">Most minutes needed first (yellow bar = best candidates to be on the field). Tap − / + to fix a player's minutes in the current half if a sub was missed.</p>
+    <div class="modal-list" id="plannerList"></div>
+    <div class="modal-btns"><button class="modal-confirm" style="background:var(--blue);" onclick="closePlanner()">Done</button></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="rosterModal">
+  <div class="modal-box wide">
+    <p style="margin-bottom:8px;font-weight:800;">Roster &amp; settings</p>
+    <div class="set-row"><span>Minimum minutes per player</span><input id="minTargetInput" type="number" min="1" max="90" inputmode="numeric" onchange="setTarget(this.value)" /></div>
+    <div class="modal-list" id="rosterList"></div>
+    <div class="add-row"><input id="newPlayerInput" type="text" placeholder="Add a player" /><button onclick="addPlayer()">Add</button></div>
+    <div class="modal-btns" style="margin-top:10px;"><button class="modal-confirm" style="background:var(--blue);" onclick="closeRosterModal()">Done</button></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="shareModal">
+  <div class="modal-box wide">
+    <p style="margin-bottom:8px;font-weight:800;">Share game report</p>
+    <textarea class="copy-ta" id="shareText" readonly></textarea>
+    <p id="shareCopied"></p>
+    <div class="modal-btns">
+      <button class="modal-cancel" onclick="closeShareModal()">Close</button>
+      <button class="modal-confirm" style="background:var(--blue);" onclick="copyShareText()">Copy</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="attendanceModal">
+  <div class="modal-box" style="max-width:340px;">
+    <p style="margin-bottom:8px;">Who's here today?</p>
+    <div id="attendanceList" style="text-align:left; max-height:50vh; overflow-y:auto; margin-bottom:12px;"></div>
+    <div class="modal-btns">
+      <button class="modal-confirm" style="background:var(--blue);" onclick="closeAttendanceModal()">Done</button>
+    </div>
+  </div>
+</div>
+
+
+<div class="header">
+  <h1>⚽ Lopatcong Soccer Game Tracker</h1>
+  <p>Drag players on/off the field · log goals · finalize for a full report</p>
+</div>
+
+<div class="tabs">
+  <button id="tabLiveBtn" class="active" onclick="switchTab('live')">Live Game</button>
+  <button id="tabGamesBtn" onclick="switchTab('games')">Game History</button>
+  <button id="tabSeasonBtn" onclick="switchTab('season')">Season</button>
+</div>
+
+<div id="liveView">
+
+  <div class="team-row">
+    <input id="teamNameInput" value="Lopatcong" />
+    <span class="score-vs">vs</span>
+    <input id="opponentInput" value="Opponent" />
+  </div>
+
+  <div class="toolbar">
+    <button class="tool-btn" onclick="openAttendanceModal()">👥 <span id="attendanceCount">16/16</span> here</button>
+    <button class="tool-btn" onclick="openPlanner()">📋 Planner</button>
+    <button class="tool-btn" onclick="openRosterModal()">✏️ Roster</button>
+    <button class="tool-btn" id="undoBtn" onclick="undoLast()" disabled>↩️ Undo</button>
+  </div>
+
+  <div class="scoreboard" id="scoreboard">0 - 0
+    <span class="half-tag" id="halfTag">Half 1</span>
+  </div>
+
+  <div class="clock-bar">
+    <div class="clock-time" id="clockDisplay">25:00</div>
+    <div class="clock-btns">
+      <input class="mins-input" id="minsInput" type="number" value="25" min="1" max="60" title="Minutes per half" />
+      <button class="btn-start" onclick="startClock()">Start</button>
+      <button class="btn-pause" onclick="pauseClock()">Pause</button>
+      <button class="btn-reset" onclick="resetClock()">Reset</button>
+      <button class="btn-half2" id="half2Btn" onclick="switchToHalf2()">Half 2 &rarr;</button>
+    </div>
+  </div>
+
+  <div id="playtimeBanner" class="banner"></div>
+
+  <div class="panel">
+    <h3>Log a Goal</h3>
+    <div class="goal-form">
+      <select id="scorerSelect"></select>
+      <select id="assistSelect"></select>
+      <button onclick="logOurGoal()">+ Goal</button>
+    </div>
+    <button class="opp-goal-btn" onclick="logOppGoal()">+1 Opponent Goal</button>
+    <div class="goal-list" id="goalList"></div>
+  </div>
+
+  <div class="field" id="field">
+    <div class="line halfway"></div>
+    <div class="line center-circle"></div>
+    <div class="line box-top"></div>
+    <div class="line box-bottom"></div>
+  </div>
+
+  <div class="bench-header">
+    <span>Bench <span class="sub">(sorted: least playtime first)</span></span>
+  </div>
+  <div class="bench" id="bench"></div>
+
+  <div class="summary-toggle">
+    <button onclick="toggleSummary()">📊 Show Playing Time Summary</button>
+  </div>
+  <div class="summary" id="summary">
+    <h3>Total Playing Time (this game)</h3>
+    <div id="summaryList"></div>
+  </div>
+
+  <div class="finalize-row">
+    <button class="finalize-btn" onclick="finalizeGame()">🏁 Finalize Game</button>
+    <button class="restart-btn" onclick="restartGame()">↺ Restart Game (clear without saving)</button>
+  </div>
+</div>
+
+<div id="seasonView" style="display:none;">
+  <div id="seasonContent"></div>
+</div>
+
+<div id="gamesView" style="display:none;">
+  <div id="syncStatus" style="text-align:center;color:#cfe0f5;font-size:11px;margin-bottom:8px;"></div>
+  <button class="opp-goal-btn" style="margin-bottom:10px;" onclick="exportGamesCsv()">⬇️ Export All Games (CSV)</button>
+  <div id="gamesList"></div>
+</div>
+
+<script type="module">
+  // ============================================================
+  // FIREBASE SETUP — paste your config from the Firebase console
+  // (Project settings > Your apps > web app > config snippet)
+  // ============================================================
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getFirestore, collection, addDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDZhAMfliR699aLH2N0asTdjoA1K6x6YaM",
+    authDomain: "soccertracker-17085.firebaseapp.com",
+    projectId: "soccertracker-17085",
+    storageBucket: "soccertracker-17085.firebasestorage.app",
+    messagingSenderId: "424729821306",
+    appId: "1:424729821306:web:166490c267ce8766093bc3",
+    measurementId: "G-9HG5Z4ZNR1"
+  };
+  // ============================================================
+  // END CONFIG — nothing below this line needs to be edited
+  // ============================================================
+
+  let firebaseReady = false;
+  try {
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const gamesCol = collection(db, 'lopatcong_games');
+    firebaseReady = true;
+
+    window.__firebaseSaveGame = async function (report) {
+      await addDoc(gamesCol, report);
+    };
+
+    onSnapshot(query(gamesCol, orderBy('dateISO', 'desc')), (snapshot) => {
+      const games = [];
+      snapshot.forEach(d => games.push({ id: d.id, ...d.data() }));
+      if (window.__onGamesUpdate) window.__onGamesUpdate(games);
+    });
+  } catch (e) {
+    console.warn('Firebase not configured yet — using local storage only.', e);
+  }
+  window.__firebaseReady = firebaseReady;
+</script>
+
+<script>
+/* ---------- Helpers ---------- */
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function shortName(p) {
+  const parts = p.name.trim().split(/\s+/);
+  return parts.length > 1 ? parts[0] + ' ' + parts[parts.length - 1].charAt(0) + '.' : p.name;
+}
+
+/* ---------- Roster & slots ---------- */
+const slots = [
+  { id: 'gk', label: 'Goalie', x: 50, y: 87 },
+  { id: 'ldef', label: 'L Def', x: 25, y: 63 },
+  { id: 'rdef', label: 'R Def', x: 75, y: 63 },
+  { id: 'lm', label: 'LM', x: 15, y: 37 },
+  { id: 'cm', label: 'CM', x: 50, y: 37 },
+  { id: 'rm', label: 'RM', x: 85, y: 37 },
+  { id: 'st', label: 'Striker', x: 50, y: 12.5 }
+];
+const POS_GROUPS = [
+  { key: 'gk', short: 'GK', slots: ['gk'] },
+  { key: 'def', short: 'DEF', slots: ['ldef', 'rdef'] },
+  { key: 'mid', short: 'MID', slots: ['lm', 'cm', 'rm'] },
+  { key: 'st', short: 'ST', slots: ['st'] }
+];
+
+function mkPlayer(name) {
+  return { id: Math.random().toString(36).slice(2), name, slotId: null, sessionStart: null, half1Sec: 0, half2Sec: 0, present: true, posSec: {} };
+}
+
+let players = [
+  mkPlayer("Bella"), mkPlayer("Mila"), mkPlayer("Ishmon"),
+  mkPlayer("Logan"), mkPlayer("Elliot F"), mkPlayer("Jo"),
+  mkPlayer("Jordon"), mkPlayer("Austin"), mkPlayer("Parker"),
+  mkPlayer("Riann"), mkPlayer("Riley"), mkPlayer("Elliot C"),
+  mkPlayer("Everly"), mkPlayer("Charlie"), mkPlayer("Rayon"),
+  mkPlayer("Jaxson")
+];
+
+/* ---------- Game / half state ---------- */
+let half = 1;
+let gameRunning = false;
+let gameRemainingSec = 25 * 60;
+let halfEndAt = null; // epoch ms timestamp the current half will hit 0, if uninterrupted
+let gameIntervalId = null;
+let wakeLock = null;
+let goals = []; // { id, team:'us'|'opp', half, clockLabel, scorerName, assistName }
+let savedGames = [];
+let currentTab = 'live';
+let targetMinutes = 18; // minimum minutes every player should get (editable in Roster & settings)
+
+function loadSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem('lopatcong-settings') || '{}');
+    if (s.targetMinutes > 0) targetMinutes = s.targetMinutes;
+  } catch (e) { /* defaults */ }
+}
+function saveSettings() {
+  try { localStorage.setItem('lopatcong-settings', JSON.stringify({ targetMinutes })); } catch (e) {}
+}
+
+window.__onGamesUpdate = function (games) {
+  savedGames = games;
+  if (currentTab === 'games') renderGamesList();
+  if (currentTab === 'season') renderSeason();
+};
+
+async function requestWakeLock() {
+  try {
+    if ('wakeLock' in navigator) {
+      wakeLock = await navigator.wakeLock.request('screen');
+    }
+  } catch (e) { /* Wake lock not permitted in this context — clock still stays accurate via timestamps */ }
+}
+function releaseWakeLock() {
+  if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    if (gameRunning) requestWakeLock();
+    render(); // recompute remaining time immediately from halfEndAt
+  }
+});
+
+function getHalfLengthSec() { return (parseFloat(document.getElementById('minsInput').value) || 25) * 60; }
+function bucketKey() { return half === 1 ? 'half1Sec' : 'half2Sec'; }
+
+/* ---------- Undo ---------- */
+let undoStack = [];
+function snapshot() {
+  undoStack.push(JSON.stringify({
+    players: players.map(p => ({ id: p.id, slotId: p.slotId, sessionStart: p.sessionStart, half1Sec: p.half1Sec, half2Sec: p.half2Sec, present: p.present, posSec: p.posSec })),
+    goals
+  }));
+  if (undoStack.length > 30) undoStack.shift();
+}
+function undoLast() {
+  if (!undoStack.length) return;
+  const s = JSON.parse(undoStack.pop());
+  s.players.forEach(sp => {
+    const p = players.find(x => x.id === sp.id);
+    if (p) Object.assign(p, sp);
+  });
+  goals = s.goals;
+  populateGoalSelects();
+  render();
+  if (isOpen('plannerModal')) renderPlanner();
+}
+function isOpen(id) { return document.getElementById(id).classList.contains('open'); }
+
+/* ---------- Clock ---------- */
+function effNow() { return (gameRunning && halfEndAt) ? Math.min(Date.now(), halfEndAt) : Date.now(); }
+
+function startClock() {
+  if (gameRunning) return;
+  undoStack = [];
+  gameRunning = true;
+  halfEndAt = Date.now() + gameRemainingSec * 1000;
+  const now = Date.now();
+  players.forEach(p => { if (p.slotId && !p.sessionStart) p.sessionStart = now; });
+  gameIntervalId = setInterval(tick, 1000);
+  document.getElementById('minsInput').disabled = true;
+  requestWakeLock();
+  render();
+}
+
+function pauseClock() {
+  undoStack = [];
+  if (gameRunning && halfEndAt) {
+    const endAt = effNow(); // never count time past the final whistle
+    gameRemainingSec = Math.max(0, Math.round((halfEndAt - Date.now()) / 1000));
+    flushAllSessions(endAt);
+    halfEndAt = null;
+  } else {
+    flushAllSessions();
+  }
+  gameRunning = false;
+  clearInterval(gameIntervalId);
+  releaseWakeLock();
+  render();
+}
+
+function resetClock() {
+  undoStack = [];
+  const endAt = effNow();
+  gameRunning = false;
+  clearInterval(gameIntervalId);
+  halfEndAt = null;
+  flushAllSessions(endAt);
+  gameRemainingSec = getHalfLengthSec();
+  document.getElementById('minsInput').disabled = false;
+  releaseWakeLock();
+  render();
+}
+
+function switchToHalf2() {
+  if (half !== 1) return;
+  undoStack = [];
+  const endAt = effNow();
+  gameRunning = false;
+  clearInterval(gameIntervalId);
+  halfEndAt = null;
+  flushAllSessions(endAt);
+  half = 2;
+  gameRemainingSec = getHalfLengthSec();
+  releaseWakeLock();
+  render();
+  openPlanner(); // halftime: who still needs minutes?
+}
+
+function tick() {
+  if (!halfEndAt) return;
+  gameRemainingSec = Math.max(0, Math.round((halfEndAt - Date.now()) / 1000));
+  if (gameRemainingSec <= 0) pauseClock();
+  render();
+}
+
+function flushSession(p, atMs) {
+  if (p.sessionStart) {
+    const end = atMs || effNow();
+    const sec = Math.max(0, Math.round((end - p.sessionStart) / 1000));
+    p[bucketKey()] += sec;
+    if (p.slotId) { p.posSec = p.posSec || {}; p.posSec[p.slotId] = (p.posSec[p.slotId] || 0) + sec; }
+    p.sessionStart = null;
+  }
+}
+function flushAllSessions(atMs) { players.forEach(p => flushSession(p, atMs)); }
+
+function fmtClock(sec) { const m = Math.floor(sec / 60), s = sec % 60; return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0'); }
+function fmtMin(sec) { sec = Math.max(0, Math.round(sec)); const m = Math.floor(sec / 60), s = sec % 60; return m + ':' + String(s).padStart(2, '0'); }
+function liveTotal(p) { let sec = p.half1Sec + p.half2Sec; if (p.sessionStart) sec += Math.max(0, Math.floor((effNow() - p.sessionStart) / 1000)); return sec; }
+
+/* position minutes (including the shift in progress) */
+function livePosSec(p) {
+  const out = Object.assign({}, p.posSec || {});
+  if (p.sessionStart && p.slotId) out[p.slotId] = (out[p.slotId] || 0) + Math.max(0, Math.floor((effNow() - p.sessionStart) / 1000));
+  return out;
+}
+function groupSecs(posSec) {
+  const g = {};
+  POS_GROUPS.forEach(grp => { g[grp.key] = grp.slots.reduce((s, id) => s + (posSec[id] || 0), 0); });
+  return g;
+}
+function posSummary(p) {
+  const g = groupSecs(livePosSec(p));
+  return POS_GROUPS.filter(grp => g[grp.key] >= 30).map(grp => grp.short + ' ' + Math.round(g[grp.key] / 60) + 'm').join(' · ');
+}
+
+/* ---------- Minimum-minutes tracking ---------- */
+function targetMark(p) { return liveTotal(p) >= targetMinutes * 60 ? ' ✅' : ''; }
+function needSec(p) { return Math.max(0, targetMinutes * 60 - liveTotal(p)); }
+function currentHalfRemaining() {
+  if (gameRunning && halfEndAt) return Math.max(0, Math.round((halfEndAt - Date.now()) / 1000));
+  return gameRemainingSec;
+}
+function gameLeftSec() { return currentHalfRemaining() + (half === 1 ? getHalfLengthSec() : 0); }
+// 'done' | 'ok' | 'warn' (bench, almost out of slack) | 'bad' (can no longer reach the minimum)
+function playerFlag(p, left) {
+  const need = needSec(p);
+  if (need === 0) return 'done';
+  const slack = left - need;
+  if (slack < 0) return 'bad';
+  if (!p.slotId && slack < 180) return 'warn';
+  return 'ok';
+}
+
+function updateBanner() {
+  const el = document.getElementById('playtimeBanner');
+  const pres = players.filter(p => p.present);
+  if (!pres.length) { el.className = 'banner'; el.textContent = ''; return; }
+  const left = gameLeftSec();
+  let totalNeed = 0;
+  const bad = [], warn = [];
+  pres.forEach(p => {
+    const need = needSec(p);
+    totalNeed += need;
+    const f = playerFlag(p, left);
+    if (f === 'bad') bad.push(shortName(p) + ' (short ' + fmtMin(need - left) + ')');
+    else if (f === 'warn') warn.push(shortName(p) + ' (' + fmtMin(left - need) + ' spare)');
+  });
+  const spare = Math.min(slots.length, pres.length) * left - totalNeed;
+  const list = arr => arr.slice(0, 4).join(', ') + (arr.length > 4 ? ' +' + (arr.length - 4) + ' more' : '');
+  let cls = 'ok', msg;
+  if (totalNeed === 0) msg = '✅ Everyone has reached ' + targetMinutes + ' min';
+  else if (bad.length || spare < 0) {
+    cls = 'bad';
+    msg = '⚠️ Not everyone can reach ' + targetMinutes + ' min. ' + (bad.length ? list(bad) : 'Short ' + fmtMin(-spare) + ' of field time.');
+  } else if (warn.length || spare < 300) {
+    cls = 'warn';
+    msg = '⏱ Tight on time (spare ' + fmtMin(spare) + ').' + (warn.length ? ' Put in soon: ' + list(warn) : '');
+  } else msg = '✅ On track for ' + targetMinutes + ' min each · spare field time ' + fmtMin(spare);
+  el.className = 'banner ' + cls;
+  el.textContent = msg;
+}
+
+/* ---------- Field placement ---------- */
+function playerInSlot(slotId) { return players.find(p => p.slotId === slotId); }
+
+// Moves a player to a slot (or null = bench), closing out their current shift and starting a new one
+function assignSlot(p, slotId) {
+  flushSession(p);
+  p.slotId = slotId;
+  if (slotId && gameRunning) p.sessionStart = Date.now();
+}
+
+function putOnField(player, slotId) {
+  if (player.slotId === slotId) return;
+  snapshot();
+  const occupant = playerInSlot(slotId);
+  const oldSlot = player.slotId;
+  if (occupant) assignSlot(occupant, oldSlot || null); // swap: occupant takes the dragged player's old spot (or goes to the bench)
+  assignSlot(player, slotId);
+}
+
+function moveOff(player) { assignSlot(player, null); }
+
+/* ---------- Goals ---------- */
+function populateGoalSelects() {
+  const scorerSel = document.getElementById('scorerSelect');
+  const assistSel = document.getElementById('assistSelect');
+  const sorted = players.filter(p => p.present).sort((a, b) => a.name.localeCompare(b.name));
+  scorerSel.innerHTML = sorted.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  assistSel.innerHTML = `<option value="">No assist</option>` + sorted.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+}
+
+function logOurGoal() {
+  const scorer = players.find(p => p.id === document.getElementById('scorerSelect').value);
+  const assist = players.find(p => p.id === document.getElementById('assistSelect').value);
+  snapshot();
+  goals.push({ id: Date.now().toString(36), team: 'us', half, clockLabel: fmtClock(currentHalfRemaining()), scorerName: scorer ? scorer.name : 'Unknown', assistName: assist ? assist.name : null });
+  render();
+}
+function logOppGoal() {
+  snapshot();
+  goals.push({ id: Date.now().toString(36), team: 'opp', half, clockLabel: fmtClock(currentHalfRemaining()), scorerName: 'Opponent', assistName: null });
+  render();
+}
+function removeGoal(id) { snapshot(); goals = goals.filter(g => g.id !== id); render(); }
+
+/* ---------- Rendering (live view) ---------- */
+function render() {
+  // Never rebuild chips while a drag is in progress: replacing the element under the
+  // finger makes iOS stop delivering pointer events, which kills the drag.
+  if (dragState) {
+    if (Date.now() - dragState.lastActivity > 6000) { endDrag(null, false); return; }
+    document.getElementById('clockDisplay').textContent = fmtClock(gameRemainingSec);
+    return;
+  }
+  cleanupStrayGhosts();
+  document.getElementById('clockDisplay').textContent = fmtClock(gameRemainingSec);
+  document.getElementById('halfTag').textContent = 'Half ' + half;
+  document.getElementById('half2Btn').disabled = half !== 1;
+  document.getElementById('half2Btn').style.opacity = half !== 1 ? 0.4 : 1;
+  document.getElementById('attendanceCount').textContent = players.filter(p => p.present).length + '/' + players.length;
+  document.getElementById('undoBtn').disabled = undoStack.length === 0;
+
+  const ourGoals = goals.filter(g => g.team === 'us').length;
+  const oppGoals = goals.filter(g => g.team === 'opp').length;
+  document.getElementById('scoreboard').childNodes[0].textContent = ourGoals + ' - ' + oppGoals + ' ';
+
+  updateBanner();
+
+  const goalList = document.getElementById('goalList');
+  goalList.innerHTML = goals.length ? goals.map(g => `
+    <div class="goal-row">
+      <span>${g.team === 'us' ? '⚽' : '❌'} ${esc(g.scorerName)}${g.assistName ? ' (assist: ' + esc(g.assistName) + ')' : ''} — H${g.half}, ${esc(g.clockLabel)} left</span>
+      <button class="del" onclick="removeGoal('${g.id}')">&times;</button>
+    </div>`).join('') : '<div class="goal-row" style="justify-content:center;">No goals yet</div>';
+
+  document.querySelectorAll('.slot').forEach(el => el.remove());
+  const field = document.getElementById('field');
+  slots.forEach(slot => {
+    const slotEl = document.createElement('div');
+    slotEl.className = 'slot';
+    slotEl.dataset.slotId = slot.id;
+    slotEl.style.left = slot.x + '%';
+    slotEl.style.top = slot.y + '%';
+    const occ = playerInSlot(slot.id);
+    if (occ) {
+      slotEl.classList.add('filled');
+      slotEl.appendChild(buildChip(occ, true));
+      const label = document.createElement('div');
+      label.className = 'field-name-label';
+      label.textContent = occ.name + targetMark(occ);
+      slotEl.appendChild(label);
+    }
+    else slotEl.textContent = slot.label;
+    field.appendChild(slotEl);
+  });
+
+  // bench
+  const left = gameLeftSec();
+  const bench = document.getElementById('bench');
+  bench.innerHTML = '';
+  const benchPlayers = players.filter(p => !p.slotId && p.present).sort((a, b) => liveTotal(a) - liveTotal(b));
+  const totals = players.filter(p => p.present).map(liveTotal);
+  const minTotal = totals.length ? Math.min(...totals) : 0;
+  benchPlayers.forEach(p => {
+    const flag = playerFlag(p, left);
+    const wrap = document.createElement('div');
+    wrap.className = 'bench-chip-wrap' + (liveTotal(p) === minTotal ? ' needs-time' : '') + (flag === 'warn' ? ' flag-warn' : '') + (flag === 'bad' ? ' flag-bad' : '');
+    wrap.appendChild(buildChip(p, false));
+    const nameEl = document.createElement('div');
+    nameEl.className = 'bench-name';
+    nameEl.textContent = shortName(p) + targetMark(p);
+    const totalEl = document.createElement('div');
+    totalEl.className = 'bench-total';
+    totalEl.textContent = fmtMin(liveTotal(p));
+    const needEl = document.createElement('div');
+    needEl.className = 'bench-need';
+    needEl.textContent = flag === 'done' ? '' : 'needs ' + fmtMin(needSec(p));
+    wrap.appendChild(nameEl);
+    wrap.appendChild(totalEl);
+    wrap.appendChild(needEl);
+    bench.appendChild(wrap);
+  });
+
+  renderSummary();
+  saveLiveState();
+}
+
+function saveLiveState() {
+  try {
+    const data = {
+      teamName: document.getElementById('teamNameInput').value,
+      opponentName: document.getElementById('opponentInput').value,
+      halfLengthMin: parseFloat(document.getElementById('minsInput').value) || 25,
+      half, gameRunning, gameRemainingSec, halfEndAt, goals,
+      players: players.map(p => ({ id: p.id, name: p.name, slotId: p.slotId, sessionStart: p.sessionStart, half1Sec: p.half1Sec, half2Sec: p.half2Sec, present: p.present, posSec: p.posSec || {} }))
+    };
+    localStorage.setItem('lopatcong-live-game', JSON.stringify(data));
+  } catch (e) { /* storage unavailable — live state just won't survive a refresh */ }
+}
+
+function loadLiveState() {
+  try {
+    const raw = localStorage.getItem('lopatcong-live-game');
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (!data.players || data.players.length === 0) return;
+
+    document.getElementById('teamNameInput').value = data.teamName || 'Lopatcong';
+    document.getElementById('opponentInput').value = data.opponentName || 'Opponent';
+    document.getElementById('minsInput').value = data.halfLengthMin || 25;
+    half = data.half || 1;
+    goals = data.goals || [];
+    players = data.players.map(p => ({ ...p, present: p.present !== false, posSec: p.posSec || {} }));
+
+    if (data.gameRunning && data.halfEndAt) {
+      halfEndAt = data.halfEndAt;
+      gameRemainingSec = Math.max(0, Math.round((halfEndAt - Date.now()) / 1000));
+      gameRunning = true;
+      document.getElementById('minsInput').disabled = true;
+      gameIntervalId = setInterval(tick, 1000);
+      requestWakeLock();
+    } else {
+      gameRunning = false;
+      halfEndAt = null;
+      gameRemainingSec = data.gameRemainingSec != null ? data.gameRemainingSec : getHalfLengthSec();
+    }
+  } catch (e) { /* corrupted or missing saved state — start fresh */ }
+}
+
+function buildChip(player, onField) {
+  const chip = document.createElement('div');
+  chip.className = 'chip' + (onField ? ' on-field' : '');
+  chip.dataset.playerId = player.id;
+  chip.innerHTML = `<div class="initials">${esc(player.name)}</div>` + (onField ? `<div class="shift-clock">${fmtMin(liveTotal(player))}</div>` : '');
+  attachDrag(chip, player);
+  return chip;
+}
+
+function renderSummary() {
+  const list = document.getElementById('summaryList');
+  list.innerHTML = '';
+  const sorted = players.filter(p => p.present).sort((a, b) => liveTotal(b) - liveTotal(a));
+  if (sorted.length === 0) { list.innerHTML = '<div class="summary-row">No players marked present.</div>'; return; }
+  const totals = sorted.map(liveTotal);
+  const maxT = Math.max(...totals), minT = Math.min(...totals);
+  sorted.forEach(p => {
+    const t = liveTotal(p);
+    const row = document.createElement('div');
+    row.className = 'summary-row' + (t === maxT ? ' high' : '') + (t === minT ? ' low' : '');
+    const pos = posSummary(p);
+    row.innerHTML = `<span class="sname">${esc(p.name)}${targetMark(p)}${p.slotId ? ' 🟢' : ''}${pos ? `<div class="pos-line">${pos}</div>` : ''}</span><span class="stotal">${fmtMin(t)}</span>`;
+    list.appendChild(row);
+  });
+}
+
+function toggleSummary() { document.getElementById('summary').classList.toggle('open'); }
+
+/* ---------- Drag & drop ---------- */
+let dragState = null;
+function attachDrag(chipEl, player) {
+  chipEl.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    cleanupStrayGhosts();
+    const rect = chipEl.getBoundingClientRect();
+    const ghost = chipEl.cloneNode(true);
+    ghost.classList.add('drag-ghost');
+    ghost.style.left = (rect.left + rect.width / 2) + 'px';
+    ghost.style.top = (rect.top + rect.height / 2) + 'px';
+    ghost.style.width = rect.width + 'px';
+    ghost.style.height = rect.height + 'px';
+    document.body.appendChild(ghost);
+    chipEl.style.visibility = 'hidden';
+    dragState = { player, ghost, lastActivity: Date.now(), lastY: e.clientY };
+    autoScrollTick(dragState);
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp, { once: true });
+    document.addEventListener('pointercancel', onCancel, { once: true });
+  });
+}
+function onMove(e) {
+  if (!dragState) return;
+  dragState.lastActivity = Date.now();
+  dragState.lastY = e.clientY;
+  dragState.ghost.style.left = e.clientX + 'px';
+  dragState.ghost.style.top = e.clientY + 'px';
+  document.querySelectorAll('.slot, .bench').forEach(el => el.classList.remove('drop-hover'));
+  const under = document.elementFromPoint(e.clientX, e.clientY);
+  const slotEl = under && under.closest('.slot');
+  const benchEl = under && under.closest('.bench');
+  if (slotEl) slotEl.classList.add('drop-hover'); else if (benchEl) benchEl.classList.add('drop-hover');
+}
+function endDrag(e, applyDrop) {
+  document.removeEventListener('pointermove', onMove);
+  document.removeEventListener('pointerup', onUp);
+  document.removeEventListener('pointercancel', onCancel);
+  document.querySelectorAll('.slot, .bench').forEach(el => el.classList.remove('drop-hover'));
+  if (dragState) {
+    if (applyDrop && e) {
+      const under = document.elementFromPoint(e.clientX, e.clientY);
+      const slotEl = under && under.closest('.slot');
+      const benchEl = under && under.closest('.bench');
+      const player = dragState.player;
+      if (slotEl) putOnField(player, slotEl.dataset.slotId);
+      else if (benchEl && player.slotId) { snapshot(); moveOff(player); }
+    }
+    if (dragState.ghost) dragState.ghost.remove();
+    dragState = null;
+  }
+  cleanupStrayGhosts();
+  render();
+}
+function onUp(e) { endDrag(e, true); }
+function onCancel(e) { endDrag(e, false); }
+function autoScrollTick(state) {
+  if (dragState !== state) return;
+  const edge = 90, maxSpeed = 18;
+  const y = state.lastY;
+  let dy = 0;
+  if (y < edge) dy = -Math.ceil(maxSpeed * (edge - y) / edge);
+  else if (y > window.innerHeight - edge) dy = Math.ceil(maxSpeed * (y - (window.innerHeight - edge)) / edge);
+  if (dy) {
+    window.scrollBy(0, dy);
+    state.lastActivity = Date.now();
+  }
+  requestAnimationFrame(() => autoScrollTick(state));
+}
+function cleanupStrayGhosts() {
+  document.querySelectorAll('.drag-ghost').forEach(el => el.remove());
+}
+
+setInterval(() => {
+  if (gameRunning && currentTab === 'live') {
+    document.querySelectorAll('.chip.on-field .shift-clock').forEach(el => {
+      const chipEl = el.closest('.chip');
+      const p = players.find(pl => pl.id === chipEl.dataset.playerId);
+      if (p) el.textContent = fmtMin(liveTotal(p));
+    });
+  }
+}, 1000);
+
+/* ---------- Tabs ---------- */
+function switchTab(tab) {
+  currentTab = tab;
+  [['live', 'Live'], ['games', 'Games'], ['season', 'Season']].forEach(([t, cap]) => {
+    document.getElementById(t + 'View').style.display = tab === t ? 'block' : 'none';
+    document.getElementById('tab' + cap + 'Btn').classList.toggle('active', tab === t);
+  });
+  if (tab === 'games') {
+    document.getElementById('syncStatus').textContent = window.__firebaseReady
+      ? '🟢 Synced live across devices'
+      : '⚪ Saved on this device only (Firebase not configured yet)';
+    renderGamesList();
+  }
+  if (tab === 'season') renderSeason();
+}
+
+/* ---------- Finalize & history ---------- */
+function buildReport() {
+  const ourGoals = goals.filter(g => g.team === 'us').length;
+  const oppGoals = goals.filter(g => g.team === 'opp').length;
+  const playerRows = players.filter(p => p.present).map(p => {
+    const g = groupSecs(p.posSec || {});
+    const m = s => +(s / 60).toFixed(1);
+    return {
+      name: p.name,
+      half1Min: m(p.half1Sec),
+      half2Min: m(p.half2Sec),
+      totalMin: m(p.half1Sec + p.half2Sec),
+      gkMin: m(g.gk), defMin: m(g.def), midMin: m(g.mid), stMin: m(g.st)
+    };
+  }).sort((a, b) => b.totalMin - a.totalMin);
+  const absentPlayers = players.filter(p => !p.present).map(p => p.name);
+  const totals = playerRows.map(r => r.totalMin);
+  return {
+    id: Date.now().toString(36),
+    date: new Date().toLocaleString(),
+    dateISO: new Date().toISOString(),
+    teamName: document.getElementById('teamNameInput').value || 'Lopatcong',
+    opponentName: document.getElementById('opponentInput').value || 'Opponent',
+    ourGoals, oppGoals,
+    halfLengthMin: parseFloat(document.getElementById('minsInput').value) || 25,
+    targetMin: targetMinutes,
+    goals: goals.map(g => ({ ...g })),
+    players: playerRows,
+    absentPlayers,
+    minMin: totals.length ? Math.min(...totals) : 0,
+    maxMin: totals.length ? Math.max(...totals) : 0,
+    spreadMin: totals.length ? +(Math.max(...totals) - Math.min(...totals)).toFixed(1) : 0
+  };
+}
+
+function saveGamesToStorage() {
+  try {
+    localStorage.setItem('lopatcong-games', JSON.stringify(savedGames));
+  } catch (e) { console.error('Could not save game history', e); }
+}
+function loadGamesFromStorage() {
+  try {
+    const raw = localStorage.getItem('lopatcong-games');
+    if (raw) savedGames = JSON.parse(raw);
+  } catch (e) { savedGames = []; }
+}
+
+function resetForNewGame() {
+  half = 1;
+  gameRunning = false;
+  clearInterval(gameIntervalId);
+  gameRemainingSec = getHalfLengthSec();
+  goals = [];
+  undoStack = [];
+  players.forEach(p => { p.slotId = null; p.sessionStart = null; p.half1Sec = 0; p.half2Sec = 0; p.posSec = {}; p.present = true; });
+  document.getElementById('minsInput').disabled = false;
+}
+
+function restartGame() {
+  showModal('Restart this game from zero? Clock, field, playing time and goals will be cleared. Nothing is saved to Game History.', { confirmText: 'Restart', showCancel: true, onConfirm: doRestartGame });
+}
+
+function doRestartGame() {
+  const attendance = new Map(players.map(p => [p.id, p.present]));
+  clearInterval(gameIntervalId);
+  halfEndAt = null;
+  releaseWakeLock();
+  resetForNewGame();
+  players.forEach(p => { p.present = attendance.get(p.id) !== false; });
+  populateGoalSelects();
+  render();
+}
+
+function showModal(message, options) {
+  options = options || {};
+  const showCancel = options.showCancel !== false;
+  document.getElementById('confirmModalText').textContent = message;
+  document.getElementById('confirmModalCancelBtn').style.display = showCancel ? 'block' : 'none';
+  document.getElementById('confirmModal').classList.add('open');
+  const yesBtn = document.getElementById('confirmModalYes');
+  yesBtn.textContent = options.confirmText || 'OK';
+  const newYesBtn = yesBtn.cloneNode(true);
+  yesBtn.parentNode.replaceChild(newYesBtn, yesBtn);
+  newYesBtn.addEventListener('click', () => {
+    hideConfirmModal();
+    if (options.onConfirm) options.onConfirm();
+  });
+}
+function hideConfirmModal() {
+  document.getElementById('confirmModal').classList.remove('open');
+}
+
+/* ---------- Attendance ---------- */
+function openAttendanceModal() {
+  renderAttendanceList();
+  document.getElementById('attendanceModal').classList.add('open');
+}
+function closeAttendanceModal() {
+  document.getElementById('attendanceModal').classList.remove('open');
+}
+function togglePresent(id) {
+  const p = players.find(pl => pl.id === id);
+  if (!p) return;
+  snapshot();
+  p.present = !p.present;
+  if (!p.present && p.slotId) moveOff(p);
+  renderAttendanceList();
+  populateGoalSelects();
+  render();
+}
+function renderAttendanceList() {
+  const list = document.getElementById('attendanceList');
+  const sorted = players.slice().sort((a, b) => a.name.localeCompare(b.name));
+  list.innerHTML = sorted.map(p => `
+    <div class="attendance-row${p.present ? '' : ' absent'}">
+      <span class="pname">${esc(p.name)}</span>
+      <button class="toggle-switch${p.present ? ' on' : ''}" onclick="togglePresent('${p.id}')"><span class="knob"></span></button>
+    </div>`).join('');
+  document.getElementById('attendanceCount').textContent = players.filter(p => p.present).length + '/' + players.length;
+}
+
+/* ---------- Playtime planner (halftime + anytime) ---------- */
+function openPlanner() {
+  renderPlanner();
+  document.getElementById('plannerModal').classList.add('open');
+}
+function closePlanner() { document.getElementById('plannerModal').classList.remove('open'); }
+
+function renderPlanner() {
+  const left = gameLeftSec();
+  document.getElementById('plannerHead').textContent = 'Half ' + half + ' · ' + fmtMin(left) + ' left in game · goal ' + targetMinutes + ' min each';
+  const pres = players.filter(p => p.present).sort((a, b) => (needSec(b) - needSec(a)) || a.name.localeCompare(b.name));
+  const stats = seasonStats().map;
+  const anyNeed = pres.some(p => needSec(p) > 0);
+  document.getElementById('plannerList').innerHTML = pres.map((p, i) => {
+    const need = needSec(p);
+    const flag = playerFlag(p, left);
+    const pos = posSummary(p);
+    const st = stats[p.name];
+    const gkSeason = st && st.gkGames ? ' · GK in ' + st.gkGames + ' game' + (st.gkGames > 1 ? 's' : '') + ' this season' : '';
+    const needHtml = need === 0 ? '<b>done ✅</b>' : 'needs <b class="' + (flag === 'bad' ? 'bad' : flag === 'warn' ? 'warn' : '') + '">' + fmtMin(need) + '</b>';
+    return `<div class="pl-row${anyNeed && need > 0 && i < slots.length ? ' top' : ''}">
+      <div class="pl-main">
+        <div class="pl-name">${esc(p.name)}${p.slotId ? ' 🟢' : ''}</div>
+        <div class="pl-sub">played ${fmtMin(liveTotal(p))} · ${needHtml}${pos ? ' · ' + pos : ''}${gkSeason}</div>
+      </div>
+      <div class="adj"><button onclick="adjustMinutes('${p.id}',-1)">−</button><span>min</span><button onclick="adjustMinutes('${p.id}',1)">+</button></div>
+    </div>`;
+  }).join('') || '<div class="pl-sub" style="padding:10px;">No players marked present.</div>';
+}
+
+// Manual fix: add/remove whole minutes to a player's time in the current half
+function adjustMinutes(id, delta) {
+  const p = players.find(x => x.id === id);
+  if (!p) return;
+  snapshot();
+  const k = bucketKey();
+  p[k] = Math.max(0, p[k] + delta * 60);
+  renderPlanner();
+  render();
+}
+
+/* ---------- Roster editor & settings ---------- */
+function openRosterModal() {
+  document.getElementById('minTargetInput').value = targetMinutes;
+  renderRosterList();
+  document.getElementById('rosterModal').classList.add('open');
+}
+function closeRosterModal() { document.getElementById('rosterModal').classList.remove('open'); }
+function setTarget(v) {
+  const n = Math.round(parseFloat(v));
+  if (!(n > 0 && n <= 90)) { document.getElementById('minTargetInput').value = targetMinutes; return; }
+  targetMinutes = n;
+  saveSettings();
+  render();
+}
+function renderRosterList() {
+  const sorted = players.slice().sort((a, b) => a.name.localeCompare(b.name));
+  document.getElementById('rosterList').innerHTML = sorted.map(p => `
+    <div class="rost-row">
+      <input type="text" value="${esc(p.name)}" onchange="renamePlayer('${p.id}', this.value)" />
+      <button class="rost-del" onclick="removePlayer('${p.id}')" title="Remove">&times;</button>
+    </div>`).join('');
+}
+function renamePlayer(id, value) {
+  const p = players.find(x => x.id === id);
+  const name = value.trim();
+  if (!p) return;
+  if (!name) { renderRosterList(); return; }
+  p.name = name;
+  populateGoalSelects();
+  render();
+}
+function addPlayer() {
+  const input = document.getElementById('newPlayerInput');
+  const name = input.value.trim();
+  if (!name) return;
+  players.push(mkPlayer(name));
+  input.value = '';
+  renderRosterList();
+  populateGoalSelects();
+  render();
+}
+function removePlayer(id) {
+  const p = players.find(x => x.id === id);
+  if (!p) return;
+  showModal('Remove ' + p.name + ' from the roster? Their time in the current game is dropped. Past game reports are not changed.', {
+    confirmText: 'Remove', showCancel: true,
+    onConfirm: () => {
+      flushSession(p);
+      players = players.filter(x => x.id !== id);
+      undoStack = [];
+      renderRosterList();
+      populateGoalSelects();
+      render();
+    }
+  });
+}
+
+/* ---------- Finalize ---------- */
+function finalizeGame() {
+  showModal('Finalize this game? This saves the report to Game History and clears the board for a new game.', { confirmText: 'Finalize', showCancel: true, onConfirm: doFinalizeGame });
+}
+
+async function doFinalizeGame() {
+  try {
+    const endAt = effNow();
+    gameRunning = false;
+    clearInterval(gameIntervalId);
+    halfEndAt = null;
+    flushAllSessions(endAt);
+    releaseWakeLock();
+    const report = buildReport();
+
+    let savedToCloud = false;
+    if (window.__firebaseSaveGame) {
+      try {
+        const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Firebase save timed out')), 6000));
+        await Promise.race([window.__firebaseSaveGame(report), timeout]);
+        savedToCloud = true;
+      } catch (e) {
+        console.warn('Could not save to Firebase (or it timed out), saving locally instead.', e);
+      }
+    }
+    if (!savedToCloud) {
+      savedGames.unshift(report);
+      saveGamesToStorage();
+    }
+
+    resetForNewGame();
+    populateGoalSelects();
+    render();
+    switchTab('games');
+  } catch (e) {
+    console.error('Finalize game failed:', e);
+    showModal('Something went wrong finalizing the game: ' + e.message + ' Your current game data is still intact — nothing was lost. Please try again or screenshot this message.', { showCancel: false });
+  }
+}
+
+/* ---------- Game history cards, share, CSV ---------- */
+function gameDateLabel(g) {
+  try { if (g.dateISO) return new Date(g.dateISO).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); } catch (e) {}
+  return g.date || '';
+}
+function posLineForRow(p) {
+  const parts = [];
+  if (p.gkMin) parts.push('GK ' + p.gkMin);
+  if (p.defMin) parts.push('DEF ' + p.defMin);
+  if (p.midMin) parts.push('MID ' + p.midMin);
+  if (p.stMin) parts.push('ST ' + p.stMin);
+  return parts.join(' · ');
+}
+
+function gameCardHtml(g) {
+  const tgt = g.targetMin || 18;
+  const goalsHtml = g.goals.length
+    ? g.goals.map(gl => `<div class="goal-row">${gl.team === 'us' ? '⚽' : '❌'} ${esc(gl.scorerName)}${gl.assistName ? ' (assist: ' + esc(gl.assistName) + ')' : ''} — H${gl.half}, ${esc(gl.clockLabel)} left</div>`).join('')
+    : '<div class="goal-row">No goals logged.</div>';
+  const playersHtml = g.players.map(p => {
+    const pos = posLineForRow(p);
+    return `
+    <div class="summary-row${p.totalMin === g.minMin ? ' low' : ''}${p.totalMin === g.maxMin ? ' high' : ''}">
+      <span class="sname">${esc(p.name)}${p.totalMin >= tgt ? ' ✅' : ''}${pos ? `<div class="pos-line">${pos}</div>` : ''}</span>
+      <span class="stotal">${p.totalMin}m (H1 ${p.half1Min}, H2 ${p.half2Min})</span>
+    </div>`;
+  }).join('');
+  const absentHtml = (g.absentPlayers && g.absentPlayers.length)
+    ? `<h4>Absent</h4><div class="summary-row">${g.absentPlayers.map(esc).join(', ')}</div>`
+    : '';
+  return `
+  <details class="game-card">
+    <summary>${esc(g.date)} — ${esc(g.teamName)} ${g.ourGoals}-${g.oppGoals} ${esc(g.opponentName)} <span class="spread-badge">spread ${g.spreadMin}m</span></summary>
+    <div class="game-detail">
+      <h4>Goals</h4>
+      ${goalsHtml}
+      <h4>Playing Time (${g.halfLengthMin} min halves · goal ${tgt} min)</h4>
+      ${playersHtml}
+      ${absentHtml}
+      <button class="share-btn" data-gid="${esc(g.id)}" onclick="shareGame(this.dataset.gid)">📤 Share report</button>
+    </div>
+  </details>`;
+}
+
+function gameReportText(g) {
+  const tgt = g.targetMin || 18;
+  const lines = [];
+  lines.push('⚽ ' + g.teamName + ' ' + g.ourGoals + ' - ' + g.oppGoals + ' ' + g.opponentName);
+  lines.push(gameDateLabel(g));
+  lines.push('');
+  if (g.goals.length) {
+    lines.push('Goals:');
+    g.goals.forEach(gl => lines.push('• ' + (gl.team === 'us' ? gl.scorerName + (gl.assistName ? ' (assist ' + gl.assistName + ')' : '') : 'Opponent') + ' — H' + gl.half + ', ' + gl.clockLabel + ' left'));
+    lines.push('');
+  }
+  lines.push('Playing time (goal ' + tgt + ' min, ' + g.halfLengthMin + ' min halves):');
+  g.players.forEach(p => {
+    const pos = posLineForRow(p);
+    lines.push((p.totalMin >= tgt ? '✅ ' : '▫️ ') + p.name + ' — ' + p.totalMin + ' min (H1 ' + p.half1Min + ', H2 ' + p.half2Min + ')' + (pos ? ' [' + pos + ']' : ''));
+  });
+  lines.push('');
+  lines.push('Spread: ' + g.spreadMin + ' min (most ' + g.maxMin + ', least ' + g.minMin + ')');
+  if (g.absentPlayers && g.absentPlayers.length) lines.push('Absent: ' + g.absentPlayers.join(', '));
+  return lines.join('\n');
+}
+
+function shareGame(id) {
+  const g = savedGames.find(x => x.id === id);
+  if (!g) return;
+  const text = gameReportText(g);
+  if (navigator.share) {
+    navigator.share({ title: 'Game report', text }).catch(() => {});
+    return;
+  }
+  document.getElementById('shareText').value = text;
+  document.getElementById('shareCopied').textContent = '';
+  document.getElementById('shareModal').classList.add('open');
+}
+function closeShareModal() { document.getElementById('shareModal').classList.remove('open'); }
+function copyShareText() {
+  const ta = document.getElementById('shareText');
+  const done = () => { document.getElementById('shareCopied').textContent = 'Copied! Paste it into a text or email.'; };
+  ta.focus(); ta.select(); ta.setSelectionRange(0, 999999);
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(ta.value).then(done).catch(() => { try { document.execCommand('copy'); done(); } catch (e) {} });
+  } else {
+    try { document.execCommand('copy'); done(); } catch (e) {}
+  }
+}
+
+function exportGamesCsv() {
+  if (savedGames.length === 0) { showModal('No finalized games to export yet.', { showCancel: false }); return; }
+  const rows = [['Date', 'Team', 'Opponent', 'Our Goals', 'Opp Goals', 'Half Length (min)', 'Target Min', 'Player', 'Half 1 Min', 'Half 2 Min', 'Total Min', 'GK Min', 'Def Min', 'Mid Min', 'Striker Min']];
+  savedGames.forEach(g => {
+    g.players.forEach(p => {
+      rows.push([g.date, g.teamName, g.opponentName, g.ourGoals, g.oppGoals, g.halfLengthMin, g.targetMin || 18, p.name, p.half1Min, p.half2Min, p.totalMin, p.gkMin || 0, p.defMin || 0, p.midMin || 0, p.stMin || 0]);
+    });
+  });
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'lopatcong-u10-game-history.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function renderGamesList() {
+  const container = document.getElementById('gamesList');
+  if (savedGames.length === 0) {
+    container.innerHTML = '<div class="no-results">No games finalized yet. Play a game and hit "Finalize Game" to see the report here.</div>';
+    return;
+  }
+  container.innerHTML = savedGames.map(gameCardHtml).join('');
+}
+
+/* ---------- Season totals & goalie history ---------- */
+function seasonStats() {
+  const map = {};
+  const rec = { w: 0, l: 0, t: 0, gf: 0, ga: 0, games: savedGames.length };
+  const ensure = n => (map[n] = map[n] || { gp: 0, min: 0, goals: 0, assists: 0, gk: 0, gkGames: 0, def: 0, mid: 0, st: 0, hit: 0 });
+  savedGames.forEach(g => {
+    rec.gf += g.ourGoals; rec.ga += g.oppGoals;
+    if (g.ourGoals > g.oppGoals) rec.w++; else if (g.ourGoals < g.oppGoals) rec.l++; else rec.t++;
+    const tgt = g.targetMin || 18;
+    (g.players || []).forEach(p => {
+      const s = ensure(p.name);
+      s.gp++; s.min += p.totalMin;
+      s.gk += p.gkMin || 0; s.def += p.defMin || 0; s.mid += p.midMin || 0; s.st += p.stMin || 0;
+      if (p.gkMin > 0) s.gkGames++;
+      if (p.totalMin >= tgt) s.hit++;
+    });
+    (g.goals || []).forEach(gl => {
+      if (gl.team !== 'us') return;
+      if (gl.scorerName && gl.scorerName !== 'Unknown') ensure(gl.scorerName).goals++;
+      if (gl.assistName) ensure(gl.assistName).assists++;
+    });
+  });
+  return { map, rec };
+}
+
+function renderSeason() {
+  const el = document.getElementById('seasonContent');
+  const { map, rec } = seasonStats();
+  if (!savedGames.length) {
+    el.innerHTML = '<div class="no-results">No finalized games yet. Season totals appear after your first Finalize Game.</div>';
+    return;
+  }
+  const names = Array.from(new Set([...Object.keys(map), ...players.map(p => p.name)])).sort((a, b) => a.localeCompare(b));
+  const zero = { gp: 0, min: 0, goals: 0, assists: 0, gk: 0, gkGames: 0, def: 0, mid: 0, st: 0, hit: 0 };
+  const rows = names.map(n => ({ n, s: map[n] || zero }));
+  const r1 = x => Math.round(x * 10) / 10;
+
+  const table = rows.map(({ n, s }) => `
+    <div class="s-row"><span>${esc(n)}</span><span>${s.gp}</span><span>${s.gp ? r1(s.min / s.gp) : '–'}</span><span>${s.goals}</span><span>${s.assists}</span><span>${s.hit}/${s.gp}</span></div>`).join('');
+
+  const posTable = rows.filter(r => r.s.gp).map(({ n, s }) => `
+    <div class="s-row pos"><span>${esc(n)}</span><span>${Math.round(s.gk)}</span><span>${Math.round(s.def)}</span><span>${Math.round(s.mid)}</span><span>${Math.round(s.st)}</span></div>`).join('');
+
+  const goalieGames = savedGames.map(g => {
+    const gks = (g.players || []).filter(p => p.gkMin > 0).sort((a, b) => b.gkMin - a.gkMin);
+    return `<div class="s-line"><b>${esc(gameDateLabel(g))}</b> vs ${esc(g.opponentName)}: ${gks.length ? gks.map(p => esc(p.name) + ' ' + p.gkMin + 'm').join(', ') : '<i>not tracked</i>'}</div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="s-card">
+      <h3>Record</h3>
+      <div class="s-big">${rec.w}-${rec.l}-${rec.t}</div>
+      <div class="s-line">${rec.games} game${rec.games === 1 ? '' : 's'} · goals for ${rec.gf}, against ${rec.ga}</div>
+    </div>
+    <div class="s-card">
+      <h3>Player totals</h3>
+      <div class="s-row head"><span>Player</span><span>GP</span><span>Avg min</span><span>G</span><span>A</span><span>Goal met</span></div>
+      ${table}
+    </div>
+    <div class="s-card">
+      <h3>Season minutes by position</h3>
+      <div class="s-row pos head"><span>Player</span><span>GK</span><span>DEF</span><span>MID</span><span>ST</span></div>
+      ${posTable}
+    </div>
+    <div class="s-card">
+      <h3>Goalie history</h3>
+      ${goalieGames}
+    </div>`;
+}
+
+/* ---------- Init ---------- */
+document.getElementById('teamNameInput').addEventListener('input', saveLiveState);
+document.getElementById('opponentInput').addEventListener('input', saveLiveState);
+document.getElementById('minsInput').addEventListener('input', saveLiveState);
+document.getElementById('newPlayerInput').addEventListener('keydown', e => { if (e.key === 'Enter') addPlayer(); });
+
+(async function init() {
+  loadSettings();
+  await loadGamesFromStorage();
+  loadLiveState();
+  populateGoalSelects();
+  render();
+})();
+
+</script>
+
+</body>
+</html>
